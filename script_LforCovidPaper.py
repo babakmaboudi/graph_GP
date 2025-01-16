@@ -3,17 +3,18 @@ import matplotlib.pyplot as plt
 import matplotlib
 import scipy as scp
 import matplotlib.animation as animation
-
+import networkx as nx
+from scipy.sparse import csr_matrix
 
 # class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
-class graph_circle_mesh():
+class graph_covid_mesh():
     # the constructor function creates a graph consists of nodes on the circumference of 
     # a circle. The edges of the graph connects only the neighboring nodes wieghted by
     # the distance. Since the nodes are chosen uniformly, the weights become a constant
     # value.
-    def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
+    def __init__(self, graph, N=128): # N is the number of nodes on the circumference of the circle
         self.N = N
         self.theta = np.linspace(0,2*np.pi,N,endpoint=False) # uniform placement of the nodes
         points = np.exp( 1j*self.theta ) # defining nodes on the unit circle in the complex plane
@@ -22,32 +23,46 @@ class graph_circle_mesh():
         self.x = np.real(points)
         self.y = np.imag(points)
 
-        # initiating an empty adjacecy matrix
-        self.W = np.zeros([N,N])
-    
-        # weights on chosen as the distance between neighboring nodes
-        self.W[0,-1] = np.sqrt( (self.x[0] - self.x[-1])**2 + (self.y[0]-self.y[-1])**2 )
-        self.W[0,1] = np.sqrt( (self.x[1] - self.x[0])**2 + (self.y[1]-self.y[0])**2 )
-        for i in range(1,self.x.shape[0]-1):
-            self.W[i,i-1] = np.sqrt( (self.x[i] - self.x[i-1])**2 + (self.y[i]-self.y[i-1])**2 )
-            self.W[i,i+1] = np.sqrt( (self.x[i+1] - self.x[i])**2 + (self.y[i+1]-self.y[i])**2 )
-        self.W[-1,0] = np.sqrt( (self.x[-1] - self.x[0])**2 + (self.y[-1]-self.y[0])**2 )
-        self.W[-1,-2] = np.sqrt( (self.x[-1] - self.x[-2])**2 + (self.y[-1]-self.y[-2])**2 )
+        # # initiating an empty adjacecy matrix
+        # self.W = np.zeros([N,N])
+        #
+        # # weights on chosen as the distance between neighboring nodes
+        # self.W[0,-1] = np.sqrt( (self.x[0] - self.x[-1])**2 + (self.y[0]-self.y[-1])**2 )
+        # self.W[0,1] = np.sqrt( (self.x[1] - self.x[0])**2 + (self.y[1]-self.y[0])**2 )
+        # for i in range(1,self.x.shape[0]-1):
+        #     self.W[i,i-1] = np.sqrt( (self.x[i] - self.x[i-1])**2 + (self.y[i]-self.y[i-1])**2 )
+        #     self.W[i,i+1] = np.sqrt( (self.x[i+1] - self.x[i])**2 + (self.y[i+1]-self.y[i])**2 )
+        # self.W[-1,0] = np.sqrt( (self.x[-1] - self.x[0])**2 + (self.y[-1]-self.y[0])**2 )
+        # self.W[-1,-2] = np.sqrt( (self.x[-1] - self.x[-2])**2 + (self.y[-1]-self.y[-2])**2 )
 
+        element = list(graph.nodes())[0]
+        if nx.is_weighted(graph):
+            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
+        else:
+            if isinstance(element, int):
+                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
+            else:
+                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
+        self.W = W.toarray() #dense matrix
         # defining the discretization element: length of a descrete arc
-        dx = 2*np.pi/self.N
+        #dx = 2*np.pi/self.N
         Dw = np.diag( np.sum( self.W, axis = 1 ) ) # diagonal matrix of accumulated sums
-        self.L = (Dw - self.W)/dx/dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
+        #self.L = (Dw - self.W)/dx/dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
 
+        # Changed according to formulation from paper:
+        self.c = 0.1
+        self.L = (Dw - self.W)
+
+        #self.tau = 2*self.nu/self.kappa**2
         #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
-    # sampling the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2
-    def sample_stationary(self, w, nu=2):
-        return np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
+    # sampling the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2 corresponds to Matern 1/2 kernel or ? should be 3 or 5 for 3/2 or 5/3 kernel
+    def sample_stationary(self, w, nu=3):#changed from 2 #added c from paper
+        return np.linalg.solve(np.linalg.matrix_power(self.c*(self.tau*np.eye(self.N)+self.L), nu),w)
 
     # sampling the non-stationary Gaussian process with pure white noise
-    def sample_heat(self, nu=2):
+    def sample_heat(self, nu=3): #changed from 2
         # initial condition is a sample from the stationary distribution
         w = np.random.standard_normal(self.N)
         v0 = self.sample_stationary(w, nu=nu)
@@ -116,7 +131,7 @@ class graph_circle_mesh():
 # sampling and plotting the stationary Gaussian process for nu = 1 and nu = 2
 def plot_stationary():
     N = 256 # discretization size
-    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator
+    graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
     f1,axes1 = plt.subplots(2,4) # figures for 8 samples
     #f2,axes2 = plt.subplots(2,4)
 
@@ -142,7 +157,7 @@ def plot_stationary():
 # plotting on the real line
 def plot_heat():
     N = 256 # discretization size
-    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator 
+    graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
 
     # The rest of this code plots the sample of the Gaussian process on the real line
@@ -168,7 +183,7 @@ def plot_heat():
 # plotting on the circular graph
 def plot_heat_graph():
     N = 256 # discretization size
-    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator 
+    graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
 
     # The rest of this code plots the sample of the Gaussian process on the graph
