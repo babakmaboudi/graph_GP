@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import sklearn
 from sklearn.preprocessing import FunctionTransformer
 
-from script_LforCovidPaper import graph_covid_mesh
+from script_LforCovidPaper import graph_covid_mesh, plot_heat
 
 #Some functions from spatiotemporal-graph-kernels repo!!!
 def parse_arguments():
@@ -139,6 +139,7 @@ else:
 y[y < 0] = 0
 
 graph_covid_mesh(graph)
+plot_heat(graph)
 
 
 if __name__ == "__main__":

@@ -44,15 +44,21 @@ class graph_covid_mesh():
             else:
                 W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
         self.W = W.toarray() #dense matrix
+        print(np.sum(self.W, axis=0))
         # defining the discretization element: length of a descrete arc
         #dx = 2*np.pi/self.N
         Dw = np.diag( np.sum( self.W, axis = 1 ) ) # diagonal matrix of accumulated sums
         #self.L = (Dw - self.W)/dx/dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
 
         # Changed according to formulation from paper:
-        self.c = 0.1
+        #self.c = 0.1 time-dependent case
+        self.c = 1 #stationary case
         self.L = (Dw - self.W)
 
+        for i in range(Dw.shape[0]):
+            if (Dw[i,i] != 0):
+                self.L[i, :] = self.L[i, :] / Dw[i,i]
+        print(np.sum(self.L, axis=1))
         #self.tau = 2*self.nu/self.kappa**2
         #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
@@ -155,9 +161,10 @@ def plot_stationary():
 
 # sampling and plotting a non-stationary Gaussian process on the graph
 # plotting on the real line
-def plot_heat():
+def plot_heat(graph):
     N = 256 # discretization size
-    graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
+    graph = graph_covid_mesh(N=N, graph=graph)
+    #graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
 
     # The rest of this code plots the sample of the Gaussian process on the real line
@@ -181,7 +188,7 @@ def plot_heat():
 
 # sampling and plotting a non-stationary Gaussian process on the graph
 # plotting on the circular graph
-def plot_heat_graph():
+def plot_heat_graph(graph):
     N = 256 # discretization size
     graph = graph_covid_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
@@ -229,4 +236,5 @@ if __name__ == '__main__':
     #plot_heat()
 
     # uncomment to visualize a non-stationary Gaussian process visualized on the graph
-    plot_heat_graph()
+    #plot_heat_graph()
+    graph_covid_mesh()
