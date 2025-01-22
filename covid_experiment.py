@@ -98,6 +98,7 @@ graph = pickle.load(open(GRAPH_PATH, "rb"))
 N_NODES = len(graph.nodes())
 
 NUM_TEST_WEEKS = args.num_test_weeks
+
 NUM_TRAIN = 33 * N_NODES
 NUM_TEST = NUM_TEST_WEEKS * N_NODES
 START = 4 * N_NODES * 2
@@ -138,35 +139,40 @@ else:
 
 y[y < 0] = 0
 
-graph_covid_mesh(graph)
-plot_heat(graph)
+G = graph_covid_mesh(graph)
+
+w = np.random.standard_normal( G.N )
+out = G.sample_heat()
+print(out)
+
+#plot_heat(graph)
 
 
-if __name__ == "__main__":
-    results = {}
-    #for kernel_name, kernel in exp_kernels.items():
-    #    results[kernel_name] = {}
-    #for i, rs in tqdm(enumerate(RANDOM_SEEDS), total=len(RANDOM_SEEDS)):
-    rs = 1234
-    N = len(graph.nodes())
-    #utils.set_all_random_seeds(rs)
-    train_X, train_y, test_X, test_y, qt = generate_dataset(
-        X, y, NUM_TRAIN, NUM_TEST,
-        start=START + len(graph.nodes()), log_target=LOG_TARGET, rs=rs,
-        interpolation=INTERPOLATION)
-    #print("Evaluating kernel ", kernel_name)
-    #start = time.time()
-    #need to set up some sampler or inference method:
-    #result, gprocess = utils_opt.evaluate_kernel_mcmc(
-    #    copy.deepcopy(kernel), train_X, train_y, test_X, test_y, graph,
-    #    transformer=qt,
-    #    n_iter=N_ITER, dump_directory=DUMP_DIRECTORY,
-    #    dump_everything=DUMP_EVERYTHING, optimizer_name="LBFGS")
-    #results[rs] = result
-    #results[kernel_name][rs]["time"] = time.time() - start
-    #json.dump(results, open(os.path.join(DUMP_DIRECTORY, "results.json"), "w"))
-    print("leny", len(train_y))
-
-    #signal needs to change!!!
-    signal = np.ones(N_NODES)*0.1# train_y
-    plot_nodes_with_colors(graph, signal)
+#if __name__ == "__main__":
+#    results = {}
+#    #for kernel_name, kernel in exp_kernels.items():
+#    #    results[kernel_name] = {}
+#    #for i, rs in tqdm(enumerate(RANDOM_SEEDS), total=len(RANDOM_SEEDS)):
+#    rs = 1234
+#    N = len(graph.nodes())
+#    #utils.set_all_random_seeds(rs)
+#    train_X, train_y, test_X, test_y, qt = generate_dataset(
+#        X, y, NUM_TRAIN, NUM_TEST,
+#        start=START + len(graph.nodes()), log_target=LOG_TARGET, rs=rs,
+#        interpolation=INTERPOLATION)
+#    #print("Evaluating kernel ", kernel_name)
+#    #start = time.time()
+#    #need to set up some sampler or inference method:
+#    #result, gprocess = utils_opt.evaluate_kernel_mcmc(
+#    #    copy.deepcopy(kernel), train_X, train_y, test_X, test_y, graph,
+#    #    transformer=qt,
+#    #    n_iter=N_ITER, dump_directory=DUMP_DIRECTORY,
+#    #    dump_everything=DUMP_EVERYTHING, optimizer_name="LBFGS")
+#    #results[rs] = result
+#    #results[kernel_name][rs]["time"] = time.time() - start
+#    #json.dump(results, open(os.path.join(DUMP_DIRECTORY, "results.json"), "w"))
+#    print("leny", len(train_y))
+#
+#    #signal needs to change!!!
+#    signal = np.ones(N_NODES)*0.1# train_y
+#    plot_nodes_with_colors(graph, signal)

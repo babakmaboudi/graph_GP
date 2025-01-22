@@ -15,7 +15,7 @@ class graph_covid_mesh():
     # the distance. Since the nodes are chosen uniformly, the weights become a constant
     # value.
     def __init__(self, graph, N=128): # N is the number of nodes on the circumference of the circle
-        self.N = N
+        #self.N = N
         self.theta = np.linspace(0,2*np.pi,N,endpoint=False) # uniform placement of the nodes
         points = np.exp( 1j*self.theta ) # defining nodes on the unit circle in the complex plane
         
@@ -43,23 +43,41 @@ class graph_covid_mesh():
                 W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
             else:
                 W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
-        self.W = W.toarray() #dense matrix
-        print(np.sum(self.W, axis=0))
+        self.W = (W.toarray()).astype(float) #dense matrix
+        self.N = self.W.shape[0]
         # defining the discretization element: length of a descrete arc
         #dx = 2*np.pi/self.N
+
         Dw = np.diag( np.sum( self.W, axis = 1 ) ) # diagonal matrix of accumulated sums
+
         #self.L = (Dw - self.W)/dx/dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
 
         # Changed according to formulation from paper:
         #self.c = 0.1 time-dependent case
         self.c = 1 #stationary case
-        self.L = (Dw - self.W)
+        self.L = Dw - self.W
 
-        for i in range(Dw.shape[0]):
-            if (Dw[i,i] != 0):
-                self.L[i, :] = self.L[i, :] / Dw[i,i]
-        print(np.sum(self.L, axis=1))
-        #self.tau = 2*self.nu/self.kappa**2
+        #normal_factors = np.sqrt( np.diag(Dw) )
+        #idx = np.where(normal_factors>0.)
+        #normal_factors[idx] = 1./normal_factors[idx]
+
+        #for i in range(self.N):
+        #    self.L[i,:] = self.L[i,:]*normal_factors[i]
+
+        #plt.imshow(self.L)
+        #plt.show()
+        #exit()
+
+#        for i in range(Dw.shape[0]):
+#            if (Dw[i,i] != 0):
+#                vec = np.ones(Dw.shape[0]) / Dw[i,i]
+#                vec = vec*self.L[i,:]
+#                self.L[i, :] = vec
+#
+#        print(np.sum(self.L,axis=1))
+#        exit()
+        
+        #self.tau = 2*self.nu/self.kappa**256
         #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
@@ -75,7 +93,7 @@ class graph_covid_mesh():
         #u0 = np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
         #u0 = np.zeros_like(p)
         T = 5. # maximum time
-        dt = 0.01 # time step
+        dt = 0.001 # time step
 
         # const
         L = np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu)
