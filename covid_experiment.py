@@ -7,7 +7,6 @@ import copy
 import numpy as np
 import networkx as nx
 
-
 import matplotlib.pyplot as plt
 
 import sklearn
@@ -15,7 +14,8 @@ from sklearn.preprocessing import FunctionTransformer
 
 from script_LforCovidPaper import graph_covid_mesh, plot_heat
 
-#Some functions from spatiotemporal-graph-kernels repo!!!
+
+# Some functions from spatiotemporal-graph-kernels repo!!!
 def parse_arguments():
     parser = argparse.ArgumentParser(description='COVID-19 across the US')
     parser.add_argument('--log_target', action='store_true', default=False,
@@ -43,6 +43,7 @@ def parse_arguments():
 
     return parser.parse_args()
 
+
 def generate_dataset(X, y, num_training_data, num_testing_data, start=0, log_target=False, rs=42,
                      interpolation=False):
     start_test = start + num_training_data
@@ -66,6 +67,7 @@ def generate_dataset(X, y, num_training_data, num_testing_data, start=0, log_tar
 
     return train_X, train_y, test_X, test_y, qt
 
+
 def plot_nodes_with_colors(g, signal, title="2 component graph", layout=nx.spring_layout, ax=None):
     if layout is None:
         layout = nx.spring_layout
@@ -83,6 +85,7 @@ def plot_nodes_with_colors(g, signal, title="2 component graph", layout=nx.sprin
     plt.colorbar(nc)
     plt.axis('off')
     plt.show()
+
 
 args = parse_arguments()
 
@@ -108,8 +111,7 @@ IS_PREDICT_CASES = True
 LOG_TARGET = args.log_target
 USE_NORMALIZED_TARGET = args.use_normalized_target
 
-
-#RANDOM_SEEDS = [23, 42, 82, 100, 123,
+# RANDOM_SEEDS = [23, 42, 82, 100, 123,
 #                2 * 23, 2 * 42, 2 * 82, 2 * 100, 2 * 123]
 
 X_PATH = os.path.join(DATA_FOLDER, "X.pkl")
@@ -119,7 +121,6 @@ if USE_NORMALIZED_TARGET:
 else:
     Y_CASES_PATH = os.path.join(DATA_FOLDER, "y_cases.pkl")
     Y_DEATHS_PATH = os.path.join(DATA_FOLDER, "y_deaths.pkl")
-
 
 FROM_STATE_TO_ID_PATH = os.path.join(DATA_FOLDER, "from_state_to_id.pkl")
 DUMP_DIRECTORY = args.dump_directory
@@ -136,43 +137,46 @@ if IS_PREDICT_CASES:
 else:
     y = y_deaths
 
-
 y[y < 0] = 0
 
 G = graph_covid_mesh(graph)
 
-w = np.random.standard_normal( G.N )
+w = np.random.standard_normal(G.N)
 out = G.sample_heat()
 print(out)
 
-#plot_heat(graph)
+# plot_heat(graph)
 
 
-#if __name__ == "__main__":
-#    results = {}
-#    #for kernel_name, kernel in exp_kernels.items():
-#    #    results[kernel_name] = {}
-#    #for i, rs in tqdm(enumerate(RANDOM_SEEDS), total=len(RANDOM_SEEDS)):
-#    rs = 1234
-#    N = len(graph.nodes())
-#    #utils.set_all_random_seeds(rs)
-#    train_X, train_y, test_X, test_y, qt = generate_dataset(
-#        X, y, NUM_TRAIN, NUM_TEST,
-#        start=START + len(graph.nodes()), log_target=LOG_TARGET, rs=rs,
-#        interpolation=INTERPOLATION)
-#    #print("Evaluating kernel ", kernel_name)
-#    #start = time.time()
-#    #need to set up some sampler or inference method:
-#    #result, gprocess = utils_opt.evaluate_kernel_mcmc(
-#    #    copy.deepcopy(kernel), train_X, train_y, test_X, test_y, graph,
-#    #    transformer=qt,
-#    #    n_iter=N_ITER, dump_directory=DUMP_DIRECTORY,
-#    #    dump_everything=DUMP_EVERYTHING, optimizer_name="LBFGS")
-#    #results[rs] = result
-#    #results[kernel_name][rs]["time"] = time.time() - start
-#    #json.dump(results, open(os.path.join(DUMP_DIRECTORY, "results.json"), "w"))
-#    print("leny", len(train_y))
-#
-#    #signal needs to change!!!
-#    signal = np.ones(N_NODES)*0.1# train_y
-#    plot_nodes_with_colors(graph, signal)
+if __name__ == "__main__":
+    results = {}
+    # for kernel_name, kernel in exp_kernels.items():
+    #    results[kernel_name] = {}
+    # for i, rs in tqdm(enumerate(RANDOM_SEEDS), total=len(RANDOM_SEEDS)):
+    rs = 1234
+    N = len(graph.nodes())
+    # utils.set_all_random_seeds(rs)
+    # train_X, train_y, test_X, test_y, qt = generate_dataset(
+    #     X, y, NUM_TRAIN, NUM_TEST,
+    #     start=START + len(graph.nodes()), log_target=LOG_TARGET, rs=rs,
+    #     interpolation=INTERPOLATION)
+    # print("Evaluating kernel ", kernel_name)
+    # start = time.time()
+    # need to set up some sampler or inference method:
+    # result, gprocess = utils_opt.evaluate_kernel_mcmc(
+    #    copy.deepcopy(kernel), train_X, train_y, test_X, test_y, graph,
+    #    transformer=qt,
+    #    n_iter=N_ITER, dump_directory=DUMP_DIRECTORY,
+    #    dump_everything=DUMP_EVERYTHING, optimizer_name="LBFGS")
+    # results[rs] = result
+    # results[kernel_name][rs]["time"] = time.time() - start
+    # json.dump(results, open(os.path.join(DUMP_DIRECTORY, "results.json"), "w"))
+    # print("leny", len(train_y))
+    print("nodes", N_NODES)
+    print("out", len(out))
+    dt = 0.001
+    thin = int(0.1/dt)
+    every_100th = out[::thin]
+    signal = np.diag(every_100th)
+    print("shape", signal.shape)
+    plot_nodes_with_colors(graph, signal)
