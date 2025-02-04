@@ -18,12 +18,12 @@ v0 = np.zeros(G.N)
 v0[0] = 1000.
 
 # solving the dynamics following the heat equation
-out = G.sample_heat(v0, nu = 1)
+out = G.sample_heat(nu = 1)
 
 # plotting the dynamics
 f, ax = plt.subplots()
 plotter = graph_plotter(graph, out, ax) # initiating the graph plotter
-plotter.plot_stationary(v0) # plotting the initial condition
+plotter.plot_stationary(out[0]) # plotting the initial condition
 anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=out.shape[0], interval=10) # animating the dynamics
 
 plt.show()
