@@ -21,14 +21,28 @@ class Matern_graph():
             else:
                 W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
         self.W = (W.toarray()).astype(float) #dense matrix of graph's adjacency matrix
+
+        print( np.diag(self.W) )
         self.N = self.W.shape[0]
 
         Dw = np.diag( np.sum( self.W, axis = 1 ) ) # diagonal matrix of accumulated sums
+
+        normalizer = np.zeros_like(Dw)
+        for i in range(Dw.shape[0]):
+            if(Dw[i,i] == 0):
+                normalizer[i,i] = 0
+            else:
+                normalizer[i,i] = 1/Dw[i,i]
+
+        sqrt_norm = np.sqrt(normalizer)
 
         # Changed according to formulation from paper:
         #self.c = 0.1 time-dependent case
         self.c = 1 #stationary case
         self.L = Dw - self.W
+
+        self.L = sqrt_norm@self.L
+        self.L = self.L@sqrt_norm
 
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
