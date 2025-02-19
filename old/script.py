@@ -42,12 +42,12 @@ class graph_circle_mesh():
         #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
-    # sampling the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2
-    def sample_stationary(self, w, nu=2):
+    # sampling the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2 corresponds to Matern 1/2 kernel or ? should be 3 or 5 for 3/2 or 5/3 kernel
+    def sample_stationary(self, w, nu=3):#changed from 2 #added c from paper
         return np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
 
     # sampling the non-stationary Gaussian process with pure white noise
-    def sample_heat(self, nu=2):
+    def sample_heat(self, nu=3): #changed from 2
         # initial condition is a sample from the stationary distribution
         w = np.random.standard_normal(self.N)
         v0 = self.sample_stationary(w, nu=nu)
@@ -142,7 +142,7 @@ def plot_stationary():
 # plotting on the real line
 def plot_heat():
     N = 256 # discretization size
-    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator 
+    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
 
     # The rest of this code plots the sample of the Gaussian process on the real line
@@ -168,7 +168,7 @@ def plot_heat():
 # plotting on the circular graph
 def plot_heat_graph():
     N = 256 # discretization size
-    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator 
+    graph = graph_circle_mesh(N=N) # graph class holding the graph Laplacian operator
     sol_vec = graph.sample_heat(nu=1) # sampling the Gaussian process
 
     # The rest of this code plots the sample of the Gaussian process on the graph

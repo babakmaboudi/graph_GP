@@ -5,7 +5,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from Matern_prior import Matern_graph, graph_plotter 
+from Matern_prior import Matern_graph, Graph_Plotter
 
 # loading the graph of the US states
 graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
@@ -18,11 +18,11 @@ v0 = np.zeros(G.N)
 v0[0] = 5.
 
 # solving the dynamics following the heat equation
-out = G.sample_heat(nu = 1, v0=v0)
+out = G.sample_heat(nu = 1, v0=v0, dt=0.001)
 
 # plotting the dynamics
 f, ax = plt.subplots()
-plotter = graph_plotter(graph, out, ax) # initiating the graph plotter
+plotter = Graph_Plotter(graph, out, ax) # initiating the graph plotter
 plotter.plot_stationary(out[0]) # plotting the initial condition
 anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=out.shape[0], interval=10) # animating the dynamics
 

@@ -6,11 +6,9 @@ import matplotlib.animation as animation
 import networkx as nx
 from scipy.sparse import csr_matrix
 
-# Class for creating a Laplacian operator on a circular graph
+# class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
-
-
 class Matern_graph():
     """
     A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
@@ -72,7 +70,7 @@ class Matern_graph():
         return normalizer
 
 
-    def sample_stationary(self, w, nu=2):#changed from 2 to 3, and added c from paper
+    def sample_stationary(self, w, nu=3):#changed from 2 and added c from paper
         """
         Samples from the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2 corresponds to Matern 1/2 kernel or ? should be 3 or 5 for 3/2 or 5/3 kernel.
 
@@ -90,7 +88,7 @@ class Matern_graph():
 
 
     # sampling the non-stationary Gaussian process with pure white noise
-    def sample_heat(self, v0=None, nu=2, T=5.0, dt=0.01): #nu changed from 2 to 3
+    def sample_heat(self, v0=None, nu=3, T=5.0, dt=0.01): #changed from 2
         """
         Samples from the non-stationary Gaussian process using the heat equation.
 
@@ -134,23 +132,15 @@ class Matern_graph():
         return np.array(sol)
 
 
+# class for creating a Laplacian operator on a circular graph
+# The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
+# SPDEs" (2022) by Nikitin et al.
 class Matern_circle_graph():
-    """
-    Class for creating a Laplacian operator on a circular graph. Code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via
-    SPDEs" (2022) by Nikitin et al.Graph consists of nodes on the circumference of
-    a circle. The edges of the graph connects only the neighboring nodes weighted by
-    the distance. Since the nodes are chosen uniformly, the weights become a constant
-    value.
-    """
-
-
+    # the constructor function creates a graph consists of nodes on the circumference of 
+    # a circle. The edges of the graph connects only the neighboring nodes wieghted by
+    # the distance. Since the nodes are chosen uniformly, the weights become a constant
+    # value.
     def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
-        """
-        Initializes the MaternCircleGraph.
-
-        Parameters:
-        N: Number of nodes on the circumference of the circle (int).
-        """
         self.N = N
         self.theta = np.linspace(0,2*np.pi,N,endpoint=False) # uniform placement of the nodes
         points = np.exp( 1j*self.theta ) # defining nodes on the unit circle in the complex plane
@@ -159,7 +149,7 @@ class Matern_circle_graph():
         self.x = np.real(points)
         self.y = np.imag(points)
 
-        # initiating an empty adjacency matrix
+        # initiating an empty adjacecy matrix
         self.W = np.zeros([N,N])
     
         # weights on chosen as the distance between neighboring nodes
@@ -173,37 +163,18 @@ class Matern_circle_graph():
 
         # defining the discretization element: length of a descrete arc
         dx = 2*np.pi/self.N
-        Dw = np.diag( np.sum(self.W, axis = 1)) # diagonal matrix of accumulated sums
+        Dw = np.diag( np.sum( self.W, axis = 1 ) ) # diagonal matrix of accumulated sums
         self.L = (Dw - self.W)/dx/dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
 
         #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
-
+    # sampling the stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2
     def sample_stationary(self, w, nu=2):
-        """
-        Samples a stationary Gaussian process by solving (K^nu) v = w, at this point nu = 1 or 2
-
-        Parameters:
-        - w (np.ndarray): Random input.
-        - nu (int): Smoothness level.
-
-        Returns:
-        - np.ndarray: Sampled process.
-        """
         return np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
 
-
+    # sampling the non-stationary Gaussian process with pure white noise
     def sample_heat(self, nu=2):
-        """
-       Samples a non-stationary Gaussian process with pure white noise.
-
-       Parameters:
-       - nu (int): Smoothness level.
-
-       Returns:
-       - np.ndarray: Sampled process.
-       """
         # initial condition is a sample from the stationary distribution
         w = np.random.standard_normal(self.N)
         v0 = self.sample_stationary(w, nu=nu)
@@ -345,3 +316,94 @@ class Graph_Plotter():
         signal = self.out[frame]
         self.nc.set_array(np.array(signal))
         self.ax.set_title('{}'.format(frame))
+
+
+# sampling and plotting the stationary Gaussian process for nu = 1 and nu = 2
+def plot_stationary():
+    N = 256 # discretization size
+    graph = Matern_circle_graph(N=N) # graph class holding the graph Laplacian operator
+    f1,axes1 = plt.subplots(2,4) # figures for 8 samples
+    #f2,axes2 = plt.subplots(2,4)
+
+    nus = [1,2] # smoothness levels
+    for i in range(axes1.shape[0]): # loop over the nu
+        for j in range(axes1.shape[1]): # loop over number of samples
+            w = np.random.standard_normal(N) # random input
+            v = graph.sample_stationary(w, nus[i]) # sample
+            graph.plot_sample(v,axes1[i,j]) # plotting the sample
+            axes1[i,j].set_xticklabels([])
+            axes1[i,j].set_yticklabels([])
+            axes1[i,j].set_title(r'$\nu = {}$'.format(nus[i]))
+
+            #graph.plot_sample_displacemnet(v,axes2[i,j])
+            #axes2[i,j].set_xticklabels([])
+            #axes2[i,j].set_yticklabels([])
+            #axes2[i,j].set_title(r'$\nu = {}$'.format(nus[i]))
+
+    plt.subplots_adjust(wspace=0) # removing space between plots
+    plt.show()
+
+# sampling and plotting a non-stationary Gaussian process on the graph
+# plotting on the real line
+def plot_heat():
+    N = 256 # discretization size
+    graph = Matern_circle_graph(N=N) # graph class holding the graph Laplacian operator
+    sol_vec = graph.sample_heat(nu=1)# sampling the Gaussian process
+
+    # The rest of this code plots the sample of the Gaussian process on the real line
+    f,ax = plt.subplots(1) # initiating the figure
+
+    line = ax.plot( graph.theta, sol_vec[0] )[0] # plotting the initial lines
+    ax.set( xlim=[0,2*np.pi], ylim=[-3,3] )
+
+    # This class updates the frame content according to the sample of the Gaussian process
+    # and pass the content to plt.animation
+    class heat_animation:
+        def __init__(self, sol):
+            self.sol = sol
+        def update(self, frame):
+            line.set_ydata(self.sol[frame]) # this updates the frame content
+            return line
+
+    heat_anim = heat_animation(sol_vec) # instance of the frame updator class
+    ani = animation.FuncAnimation(fig=f, func=heat_anim.update, frames=sol_vec.shape[0], interval=30) # plt animation
+    plt.show()
+
+# sampling and plotting a non-stationary Gaussian process on the graph
+# plotting on the circular graph
+def plot_heat_graph():
+    N = 256  # discretization size
+    graph = Matern_circle_graph(N=N)  # graph class holding the graph Laplacian operator
+    sol_vec = graph.sample_heat(nu=1)  # sampling the Gaussian process
+
+    # The rest of this code plots the sample of the Gaussian process on the graph
+    f, ax = plt.subplots(1)
+
+    nbin = 64
+    cmap = matplotlib.colormaps['plasma']
+    colors = cmap(np.linspace(0, 1, nbin))
+
+    dist = np.max(sol_vec) - np.min(sol_vec)
+    plot_items = []
+    for i in range(graph.x.shape[0] - 1):
+        color_id = int((sol_vec[0, i] - np.min(sol_vec)) / dist * (nbin - 1))
+        x = graph.x[i:i + 2]
+        y = graph.y[i:i + 2]
+        line = ax.plot(x, y, color=colors[color_id], linewidth=10)
+        plot_items.append(line)
+    ax.set_aspect('equal')
+
+    class heat_animation:
+        def __init__(self, sol):
+            self.sol = sol
+
+        def update(self, frame):
+            for i in range(graph.x.shape[0] - 1):
+                color_id = int((self.sol[frame, i] - np.min(sol_vec)) / dist * (nbin - 1))
+                plot_items[i][0]._color = colors[color_id]
+
+            # return plot_items
+
+    heat_anim = heat_animation(sol_vec)
+    ani = animation.FuncAnimation(fig=f, func=heat_anim.update, frames=sol_vec.shape[0], interval=100)
+    plt.show()
