@@ -11,7 +11,7 @@ from Matern_prior import Matern_graph, Graph_Plotter
 graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
 
 # defining a Matern prior on the graph
-G = Matern_graph(graph)
+G = Matern_graph(graph, normalize=True)
 
 # defining an outbreak in the first state (Alabama)
 v0 = np.zeros(G.N)
