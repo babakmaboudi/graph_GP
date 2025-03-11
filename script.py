@@ -15,10 +15,10 @@ G = Matern_graph(graph, normalize=True)
 
 # defining an outbreak in the first state (Alabama)
 v0 = np.zeros(G.N)
-v0[0] = 5.
+v0[0] = 10.
 
 # solving the dynamics following the heat equation
-out = G.sample_heat(nu = 1, v0=v0, dt=0.001)
+out = G.sample_heat(nu = 1, v0=v0, dt=0.1)
 
 # plotting the dynamics
 f, ax = plt.subplots()

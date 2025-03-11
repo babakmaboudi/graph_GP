@@ -5,6 +5,7 @@ import scipy as scp
 import matplotlib.animation as animation
 import networkx as nx
 from scipy.sparse import csr_matrix
+import pickle
 
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
@@ -39,11 +40,12 @@ class Matern_graph():
                 W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
             else:
                 W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
+        self.W_sparse = W
+        self.num_edges = W.data.shape
+
         self.W = (W.toarray()).astype(float) #dense matrix of graph's adjacency matrix
 
-        print(np.diag(self.W))
         self.N = self.W.shape[0]
-
         # Diagonal matrix of accumulated sums
         Dw = np.diag(np.sum(self.W, axis = 1))
 
@@ -52,15 +54,22 @@ class Matern_graph():
 
         # Normalize Laplacian if required
         if normalize:
-            sqrt_norm = np.sqrt(self.normalize_L(Dw))
-            self.L = sqrt_norm @ self.L @ sqrt_norm
-            print(self.L)
+            self.sqrt_norm = np.sqrt(self.normalize_L(Dw))
+            self.L = self.sqrt_norm @ self.L @ self.sqrt_norm
 
         # Set parameters, changed according to formulation from paper
         #self.c = 0.1 time-dependent case
         self.c = 1 #stationary case
         self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
+    def update_L(self, W, normalize=True):
+        self.W_sparse.data = W
+        W = (self.W_sparse.toarray()).astype(float)
+        Dw = np.diag(np.sum(W, axis = 1))
+        L = Dw - W
+        if normalize:
+            L = self.sqrt_norm @ L @ self.sqrt_norm
+        self.L = L
 
     def normalize_L(self, Dw):
         normalizer = np.zeros_like(Dw)
@@ -133,6 +142,20 @@ class Matern_graph():
             sol.append(v)
         return np.array(sol)
 
+class KL_expansion(Matern_graph):
+    def __init__(self, graph, N=128, normalize=False):
+        super().__init__(graph, N=N, normalize=normalize)
+
+    def create_eigen_decomposition(self, nu=2, num_terms=10):
+        self.num_terms = num_terms
+        K_nu = np.linalg.matrix_power(self.c * (self.tau * np.eye(self.N) + self.L), -nu)
+        eig_vals, eig_vecs = np.linalg.eig(K_nu)
+
+        self.lambda_i = np.sqrt(eig_vals[:num_terms])
+        self.e_i = eig_vecs[:,:num_terms]
+
+    def assemble(self, p):
+        return self.lambda_i*(self.e_i@p)
 
 class Matern_circle_graph():
     """
@@ -298,7 +321,7 @@ class Graph_Plotter():
     """
     Handles plotting of graph-based processes.
     """
-    def __init__(self, graph, out, ax):
+    def __init__(self, graph, out, ax, pos=None):
         """
         Initializes the GraphPlotter.
 
@@ -311,7 +334,11 @@ class Graph_Plotter():
         self.graph = graph
         self.nodes = graph.nodes()
         self.ax = ax
-        self.pos = nx.spring_layout(self.graph)
+        #self.pos = nx.random_layout(self.graph)
+        if(pos is None):
+            self.pos = nx.spring_layout(self.graph)
+        else:
+            self.pos = pos
         self.cmap = matplotlib.colormaps['plasma']
 
         nx.draw_networkx_edges(self.graph, self.pos, alpha=0.2)
