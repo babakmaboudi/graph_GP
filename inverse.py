@@ -3,6 +3,7 @@ import pickle
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from Matern_prior import Matern_graph, Graph_Plotter
+import os
 
 import Matern_prior
 import sampler
@@ -14,18 +15,40 @@ class forward_operator():
     To initiate it takes the initial conidition (source term) of the stationary 
     Gaussian process and a Graph Gaussian process.
 
-    The forward operato takes the graph weights and updates the Laplacian operator 
+    The forward operator takes the graph weights and updates the Laplacian operator
     of the Graph GP and then solves the stationary graph GP for the sources term 
     in the right-hand-side.
     """
+
+
     def __init__(self, v0, G):
+        """
+        Parameters:
+        -----------
+        v0: initial value
+        G: graph
+        """
         self.v0 = v0
         self.G = G
+
+
     def forward(self, p):
-        # This function takes graph weights p and solves the stationary graph 
-        # GP for source term v0
+        """
+        This function takes graph weights p and solves the stationary graph
+        GP for source term v0
+
+        Parameters:
+        -----------
+        p: np array of graph weights
+
+        Returns:
+        --------
+        solution of IVP for stationary graph
+        """
+
         self.G.update_L( 0.1*np.exp(p), normalize=True ) # here we create a (non-linear) log-Gaussian prior
         return self.G.sample_stationary(self.v0)
+
 
 def sample_posterior():
     """
@@ -75,6 +98,9 @@ def sample_posterior():
     
     # extracting and saving the samples
     samples = MH.get_samples()
+
+    # Create the directory if it doesn't exist
+    os.makedirs('./stat/stationary/reg1/', exist_ok=True)
 
     np.savez('./stat/stationary/reg1/stat.npz',samples=samples)
 

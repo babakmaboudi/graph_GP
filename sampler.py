@@ -1,5 +1,5 @@
 import numpy as np
-from progressbar import progressbar
+import progressbar
 import pickle
 
 class Gibbs():
@@ -20,7 +20,7 @@ class Gibbs():
             skip_len = int(N_inner/10)
         else:
             skip_len = 1
-        for i in progressbar( range(N_outer) ):
+        for i in progressbar.ProgressBar()( range(N_outer) ):
             t0 = lambda x: self.target(x, self.samplers[1].current_sample)
             self.samplers[0].set_target( t0 )
             self.samplers[0].warm_up(N_inner, skip_len=skip_len)
@@ -36,7 +36,7 @@ class Gibbs():
             self.batch_size = batch_size
             self.batch_idx = 0
 
-        for i in progressbar( range(N_outer) ):
+        for i in progressbar.ProgressBar()( range(N_outer) ):
             t0 = lambda x: self.target(x, self.samplers[1].current_sample)
             self.samplers[0].set_target( t0 )
             self.samplers[0].multi_step(N_inner)
@@ -105,7 +105,7 @@ class sampler():
         if(batch_size):
             batch = 0
 
-        for i in progressbar( range(N) ):
+        for i in progressbar.ProgressBar()( range(N) ):
             self.step()
 
             if(batch_size):
@@ -121,7 +121,7 @@ class sampler():
             self.skip_len = skip_len
 
         update_count = 0
-        for i in progressbar( range(N) ):
+        for i in progressbar.ProgressBar()( range(N) ):
             self.step()
             if(  (i+1)%self.skip_len == 0 ):
                 self.tune(update_count)

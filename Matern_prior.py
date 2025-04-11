@@ -6,7 +6,7 @@ import matplotlib.animation as animation
 import networkx as nx
 from scipy.sparse import csr_matrix
 import pickle
-
+import matplotlib.transforms as mtransforms
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
@@ -22,15 +22,15 @@ class Matern_graph():
         """
         Initializes the MaternGraph from a given networkx graph.
 
-        Parameters
-        ----------
-           graph: Input graph (networkx.Graph)
-           N: Number of nodes (int, default: 128)
-           normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+        Parameters:
+        -----------
+        graph: Input graph (networkx.Graph)
+        N: Number of nodes (int, default: 128)
+        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
 
-        Returns
-        -------
-           None
+        Returns:
+        --------
+        None
         """
         element = list(graph.nodes())[0]
         if nx.is_weighted(graph):
@@ -63,6 +63,16 @@ class Matern_graph():
         self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
     def update_L(self, W, normalize=True):
+        """Update Laplacian
+
+        Parameters:
+        -----------
+        W: np array of weights
+        normalize: boolean flag, default=True
+
+        Returns:
+        --------
+        """
         self.W_sparse.data = W
         W = (self.W_sparse.toarray()).astype(float)
         Dw = np.diag(np.sum(W, axis = 1))
@@ -72,6 +82,15 @@ class Matern_graph():
         self.L = L
 
     def normalize_L(self, Dw):
+        """normalize L
+
+        Parameters:
+        -----------
+        Dw: Diagonal matrix of the sum of the weights
+
+        Returns:
+        --------
+        """
         normalizer = np.zeros_like(Dw)
         for i in range(Dw.shape[0]):
             if(Dw[i,i] == 0):
@@ -326,6 +345,7 @@ class Graph_Plotter():
         Initializes the GraphPlotter.
 
         Parameters:
+        -----------
         graph: NetworkX graph instance
         out: Simulation output
         ax: Matplotlib axis object
@@ -342,6 +362,45 @@ class Graph_Plotter():
         self.cmap = matplotlib.colormaps['plasma']
 
         nx.draw_networkx_edges(self.graph, self.pos, alpha=0.2)
+
+
+    def draw_labels(self, labels=None, font_size=8, x_offset=0.02, y_offset=0.02):
+        """
+        Draw labels for nodes with an offset from the node positions.
+
+        Parameters:
+        -----------
+        labels: dict of labels, default None
+            The labels for each node. If None, node names are used as labels.
+        font_size: int, default 8
+            The font size of the labels.
+        x_offset: float, default 0.02
+            The horizontal offset for the label position (positive to move right, negative to move left).
+        y_offset: float, default 0.02
+            The vertical offset for the label position (positive to move up, negative to move down).
+
+        Returns:
+        --------
+        None
+        """
+        if labels is None:
+            # Default: label each node with its name
+            labels = {node: str(node) for node in self.nodes}
+
+        # Manually adjust the positions and add the labels with offset
+        for node, (x, y) in self.pos.items():
+            label = labels[node]
+            # Offset the labels using data units instead of axes
+            if label=="vermont":
+                self.ax.text(x -0.05, y -0.01, label, fontsize=font_size, ha='center', va='center')
+            elif label=="rhode island":
+                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
+            elif label=="new jersey":
+                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
+            elif label=="north carolina":
+                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
+            else:
+                self.ax.text(x + x_offset, y + y_offset, label, fontsize=font_size, ha='center', va='center')
 
 
     def plot_stationary(self, signal):
