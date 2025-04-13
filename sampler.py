@@ -89,25 +89,38 @@ class Gibbs():
         np.savez(path+'_{}.npz'.format(self.batch_idx), batch=np.array(batch) )
 
 class sampler():
+    """
+    The class is a parent sampler class that is used to handle samples and log densities
+    """
     def __init__(self, x0, target, scale=1):
-        self.dim = len(x0)
-        self.target = target
+        """
+        the initializer sets the starting parameters for the sampler
+        """
+        self.dim = len(x0) # dimension of the target distribution
+        self.target = target # log of the target density function
 
-        self.current_sample = x0
-        self.current_target = self.target( x0 )
+        self.current_sample = x0 # current sample in the sampling algorithm
+        self.current_target = self.target( x0 ) # evaluated log of the density function
 
-        self.samples = [ x0 ]
-        self.acc = [1]
+        self.samples = [ x0 ] # list containing the samples
+        self.acc = [1] # a boolean list containing the history of acceptance and rejected samples
 
-        self.scale = scale
+        self.scale = scale # the scale of the proposal step
 
     def sample(self, N, batch_size=None):
+        """
+        the sampling loop
+
+        batch_size: the number of samples before checkpointing
+        """
         if(batch_size):
             batch = 0
 
+        # the main sampling loop
         for i in progressbar.ProgressBar()( range(N) ):
-            self.step()
+            self.step() # perfomring a signle acceptance/rejection step
 
+            # checkpointing step
             if(batch_size):
                 if((i+1)%batch_size == 1):
                     self.save_checkpoint('./checkpoints/check_{}.npz'.format(batch))
@@ -115,12 +128,18 @@ class sampler():
                     batch += 1
 
     def warm_up(self, N, skip_len=None):
+        """
+        the warm up loop to adjust the step-size of the sampling method
+
+        skip_len: Number of samples before adjusting the step size
+        """
         if(skip_len == None):
             self.skip_len = int( N/10 )
         else:
             self.skip_len = skip_len
 
         update_count = 0
+        # main warm up loop
         for i in progressbar.ProgressBar()( range(N) ):
             self.step()
             if(  (i+1)%self.skip_len == 0 ):
@@ -128,12 +147,20 @@ class sampler():
                 update_count += 1
 
     def step(self):
+        """
+        Performing one step of the sampling method
+        """
         acc = self.update()
 
         self.acc.append(acc)
         self.samples.append(self.current_sample)
 
     def multi_step(self, N):
+        """
+        Performing multiple steps of the sampling method
+
+        N: number of steps
+        """
         acc = 0
         for i in range(N):
             self.update()
@@ -141,6 +168,12 @@ class sampler():
         self.samples.append(self.current_sample)
 
     def tune(self, update_count):
+        """
+        Performing one step of the warm-up method
+
+        N: number of steps
+        update_count: frequency of the step size adjustment
+        """
         hat_acc = np.mean(self.acc[-1-self.skip_len:])
 
         # d. compute new scaling parameter
@@ -151,15 +184,27 @@ class sampler():
         self.scale = min(scale_temp, 1)
 
     def set_target(self, target):
+        """
+        sets the log density of the target density
+        """
         self.target = target
 
     def get_samples(self):
+        """
+        returns the samples after sampling method
+        """
         return np.array(self.samples)
 
     def get_batch(self, batch_size):
+        """
+        returns the last batch of samples
+        """
         return np.array( self.samples[-batch_size:] )
 
     def load_checkpoint(self, path):
+        """
+        resumes the state of the sampler from a path to a checkpoint file
+        """
         self.clear()
         checkpoint = np.load(path)
         self.current_sample = checkpoint['current_sample']
@@ -167,12 +212,18 @@ class sampler():
         self.scale = checkpoint['scale']
 
     def load_state(self, state):
+        """
+        resumes the state of the sampler from a state variable
+        """
         self.clear()
         self.current_sample = state['current_sample']
         self.current_target = state['current_target']
         self.scale = state['scale']
 
     def clear(self):
+        """
+        deletes the samples in the sampler
+        """
         self.samples.clear()
         self.acc.clear()
 
@@ -206,15 +257,31 @@ class pCN(sampler):
         return {'type': 'pCN', 'current_sample': self.current_sample, 'current_target': self.current_target, 'scale': self.scale}
 
 class MH(sampler):
+    """
+    The class that performs Metropolis-Hastings (MH) algorithm to sample from a (posterior) distribution
+    """
     def __init__(self, x0, target, scale=1):
+        """
+        This function calls the parent method using the following input:
+
+        x0 : the initial guess for th Metropolis-Hastings alogirthm
+        target: a function that computes the log of the target's probability density (posterior)
+        scale (optional): This is the proposal scale for the Metropolis-Hastings method
+        """
         super().__init__(x0, target, scale=1)
 
     def update(self):
+        """
+        This function performs 1 step of the Metropolis-Hastings algorithm
+        """
+        # proposing a point x_i using the scale
         xi = np.random.standard_normal(self.dim)
         x_star = self.current_sample + self.scale*xi
 
+        # evaluating the log of the target density for the proposal
         target_eval_star = self.target(x_star)
 
+        # computing the log of the acceptance ratio
         ratio = target_eval_star - self.current_target
         alpha = min(0, ratio)
 
@@ -229,7 +296,13 @@ class MH(sampler):
         return acc
 
     def save_checkpoint(self, path='checkpoint.npz'):
+        """
+        This function saves checkpoints in order to resume sampling
+        """
         np.savez(path, type='MH', current_sample=self.current_sample, current_target=self.current_target, scale=self.scale)
 
     def get_state(self):
+        """
+        This function returns the state of the sampler
+        """
         return {'type': 'MH', 'current_sample': self.current_sample, 'current_target': self.current_target, 'scale': self.scale}
