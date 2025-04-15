@@ -7,6 +7,7 @@ import networkx as nx
 from scipy.sparse import csr_matrix
 import pickle
 import matplotlib.transforms as mtransforms
+import torch
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
@@ -160,6 +161,111 @@ class Matern_graph():
             v0 = v
             sol.append(v)
         return np.array(sol)
+
+class Matern_graph_pytorch():
+    """
+    A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
+    """
+    def __init__(self, graph, N=128, normalize=False): # N is the number of nodes on the circumference of the circle
+        """
+        Initializes the MaternGraph from a given networkx graph.
+
+        Parameters:
+        -----------
+        graph: Input graph (networkx.Graph)
+        N: Number of nodes (int, default: 128)
+        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+
+        Returns:
+        --------
+        None
+        """
+        element = list(graph.nodes())[0]
+        if nx.is_weighted(graph):
+            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
+        else:
+            if isinstance(element, int):
+                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
+            else:
+                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
+        self.W_sparse = W
+        crow_indices = torch.tensor(self.W_sparse.indptr, dtype=torch.int64)
+        col_indices = torch.tensor(self.W_sparse.indices, dtype=torch.int64)
+        values = torch.tensor(self.W_sparse.data, dtype=torch.float64)
+        self.W_sparse_tensor = torch.sparse_csr_tensor(crow_indices, col_indices, values, size=self.W_sparse.shape)
+
+        self.num_edges = W.data.shape
+
+        self.W_dense_tensor = self.W_sparse_tensor.to_dense().to(torch.float64)
+
+        self.N = self.W_sparse_tensor.shape[0]
+        # Diagonal matrix of accumulated sums
+        Dw_tensor = torch.diag( torch.sum( self.W_dense_tensor, dim=1) )
+
+        # Compute Laplacian
+        self.L_tensor = Dw_tensor - self.W_dense_tensor
+
+        # Normalize Laplacian if required
+        if normalize:
+            self.sqrt_norm_tensor = torch.sqrt( self.normalize_L( Dw_tensor ) )
+            self.L_tensor = self.sqrt_norm_tensor @ self.L_tensor @ self.sqrt_norm_tensor
+
+        # Set parameters, changed according to formulation from paper
+        #self.c = 0.1 time-dependent case
+        self.c = 1 #stationary case
+        self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
+
+
+    def update_L(self, W, normalize=True):
+        self.W_sparse_tensor = torch.sparse_csr_tensor( self.W_sparse_tensor.crow_indices(), self.W_sparse_tensor.col_indices(), W, size=self.W_sparse_tensor.shape, dtype=W.dtype )
+        W_dense = self.W_sparse_tensor.to_dense()
+        Dw = torch.diag( torch.sum( W_dense, dim=1 ) )
+        L_tensor = Dw - W_dense
+        if normalize:
+            L_tensor = self.sqrt_norm_tensor @ L_tensor @ self.sqrt_norm_tensor
+        self.L_tensor = L_tensor
+
+    def normalize_L(self, Dw):
+        """normalize L
+
+        Parameters:
+        -----------
+        Dw: Diagonal matrix of the sum of the weights
+
+        Returns:
+        --------
+        """
+        normalizer = torch.zeros_like(Dw)
+        for i in range(Dw.shape[0]):
+            if(Dw[i,i] == 0):
+                normalizer[i,i] = 0
+            else:
+                normalizer[i,i] = 1/Dw[i,i]
+        return normalizer
+
+    def sample_stationary(self, w, nu=2):
+        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
+        temp = self.c * ( self.tau * I + self.L_tensor )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+        return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01):
+        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
+        temp = self.c * ( self.tau * I + self.L_tensor )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        MAX_ITER = int(T / dt)
+        sol = [ v0 ]
+
+        for i in range(MAX_ITER):
+            noise = self.sample_stationary( torch.randn( v0.shape[0] ).to(torch.float64), nu=nu)
+            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+            v0 = v
+            sol.append( v )
+
+        return torch.stack(sol)
+
+
 
 class KL_expansion(Matern_graph):
     def __init__(self, graph, N=128, normalize=False):
