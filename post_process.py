@@ -55,38 +55,6 @@ ax.legend(title='States')
 ax.set_title('Trace Plot')
 plt.show()
 
-#Corner plot:
-# Subset the samples to only the selected random traces
-# To append index 25 to it (using np.append) Initial state
-random_indices = np.append(random_indices, 25)
-
-subset_samples = samples[:, random_indices]
-
-# Create the corner plot
-cl = 0.95
-fig = corner.corner(subset_samples, labels=[list(state_positions.keys())[i] for i in random_indices],
-                       range=[(min_val, max_val)
-                              for min_val, max_val in zip(subset_samples.min(axis=0),
-                                                          subset_samples.max(axis=0))],
-                    title_quantiles=[(1 - cl) / 2, 0.5, 1 - (1 - cl) / 2],
-                    quantiles=[(1 - cl) / 2, 0.5, 1 - (1 - cl) / 2],
-                    show_titles=True)
-axes = np.array(fig.axes).reshape((len(random_indices), len(random_indices)))
-for i in range(len(random_indices)):
-    for j in range(len(random_indices)):
-        ax = axes[i, j]
-        if i == j:
-            # Plot the MAP line
-            ax.axvline(mean[i], color="cornflowerblue", label="Mean")
-        elif i > j:
-            # Plot the mean lines
-            ax.axvline(x=mean[j], color="cornflowerblue", label="Mean")
-            ax.axhline(y=mean[i], color="cornflowerblue", label="Mean")
-
-        if i == len(random_indices) - 1 and j == len(random_indices)-1:  # Add legend only once, for the last subplot
-            ax.legend(loc='best')
-# Show the plot
-plt.show()
 
 # Visualizing the solution: For this we set the graph weights to the mean and solve the graph GP to see the nodal distribution (disease spread)
 # loading the graph of the US states
@@ -117,4 +85,43 @@ plotter.plot_stationary(out_est) # plotting the initial condition
 plotter.draw_labels()
 #anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=out.shape[0], interval=10) # animating the dynamics
 ax.set_title('estimated signal with the mean graph weights')
+plt.show()
+
+
+#Corner plot:
+# Subset the samples to only the selected random traces
+# To append index 25 to it (using np.append) Initial state
+random_indices = np.append(random_indices, 25)
+
+subset_samples = samples[:, random_indices]
+
+# Create the corner plot
+cl = 0.95
+fig = corner.corner(subset_samples, labels=[list(state_positions.keys())[i] for i in random_indices],
+                       range=[(min_val, max_val)
+                              for min_val, max_val in zip(subset_samples.min(axis=0),
+                                                          subset_samples.max(axis=0))],
+                    title_quantiles=[(1 - cl) / 2, 0.5, 1 - (1 - cl) / 2],
+                    quantiles=[(1 - cl) / 2, 0.5, 1 - (1 - cl) / 2],
+                    show_titles=True)
+axes = np.array(fig.axes).reshape((len(random_indices), len(random_indices)))
+for i in range(len(random_indices)):
+    for j in range(len(random_indices)):
+        ax = axes[i, j]
+        if i == j:
+            # Plot the mean line
+            ax.axvline(mean[i], color="cornflowerblue", label="Mean")
+            #ax.axvline(map[i], color="red", label="MAP")
+            ax.axvline(x_true[i], color="green", label="True")
+        elif i > j:
+            # Plot the mean lines
+            ax.axvline(x=mean[j], color="cornflowerblue", label="Mean")
+            ax.axhline(y=mean[i], color="cornflowerblue", label="Mean")
+            #ax.axvline(x=map[j], color="red", label="MAP")
+            #ax.axhline(y=map[i], color="red", label="MAP")
+            ax.axvline(x=x_true[j], color="green", label="True")
+            ax.axhline(y=x_true[i], color="green", label="True")
+        if i == len(random_indices) - 1 and j == len(random_indices)-1:  # Add legend only once, for the last subplot
+            ax.legend(loc='best')
+# Show the plot
 plt.show()

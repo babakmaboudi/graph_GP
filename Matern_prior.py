@@ -252,7 +252,7 @@ class Matern_circle_graph():
         #u0 = np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
         #u0 = np.zeros_like(p)
         T = 5. # maximum time
-        dt = 0.01 # time step
+        dt = 0.01*80 # time step
 
         # const
         L = np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu)
