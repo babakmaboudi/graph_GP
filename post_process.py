@@ -118,8 +118,6 @@ def main():
 
     # Subset the samples
     subset_samples = samples[:, selected_indices]
-    subset_mean = mean[selected_indices]
-    #subset_x_true = x_true[selected_indices] if x_true is not None else None
 
     plot_graph_signal(signal=out_est,graph=graph, state_positions=state_positions, title="exact signal")
     plot_trace(subset_samples, state_positions, selected_indices)
