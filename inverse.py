@@ -123,7 +123,7 @@ def sample_posterior():
     #ax.plot(std)
 
 
-def sample_posterior_real(graph=None):
+def sample_posterior_real(obs_data, graph):
     """
     This function will sample from the posterior distribution constructed by a Grap Gaussian process.
     This function considers an observation file './obs/obs_stationary.pickle' with components:
@@ -132,27 +132,16 @@ def sample_posterior_real(graph=None):
     noise_vec: a normalized noise vector follosing a Gaussian distribution
     x_true: (not needed for sampling) the true solution to the inverse problem
     """
-
-    # loading the observation vector
-    with open('./data/covid_data/y_cases_normalized.pkl', 'rb') as handle:
-        obs_data = pickle.load(handle)
-
-    y_obs = obs_data#['y_true']
-    #noise_vec = obs_data['noise_vec']
-    #x_true = obs_data['x_true']
+    y_obs = obs_data
 
     # creating signal/observation with noise std defined in sigma with 1% noise level
-    #sigma = 0.01 * np.linalg.norm(y_true) / np.sqrt(y_true.shape[0])
     sigma = 0.01
     sigma2 = sigma * sigma
-    #y_obs = y_true + sigma * noise_vec
 
     # creating a forward operator
-    graph = pickle.load(
-        open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
     G = Matern_graph(graph, normalize=True)  # Initiating a graph Gaussian process
     v0 = np.zeros(G.N)  # defining the initial condition (source term) of the stationary Gaussian process
-    v0[25] = 10.  # Outbreak of value 10 at the 26th state of the US
+    #v0[:] = 0.  # Outbreak of value 10 at the 26th state of the US
     problem = forward_operator(v0, G)  # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
@@ -198,5 +187,5 @@ def sample_posterior_real(graph=None):
 
 
 if(__name__ == "__main__"):
-    sample_posterior()
-    #sample_posterior_real()
+    #sample_posterior()
+    sample_posterior_real()
