@@ -8,6 +8,7 @@ from scipy.sparse import csr_matrix
 import pickle
 import matplotlib.transforms as mtransforms
 import torch
+from torch._C import dtype
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
@@ -247,19 +248,28 @@ class Matern_graph_pytorch():
         I = torch.eye( self.N, dtype=self.L_tensor.dtype )
         temp = self.c * ( self.tau * I + self.L_tensor )
         K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
         return torch.linalg.solve( K_nu_tensor, w )
 
-    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01):
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
         I = torch.eye( self.N, dtype=self.L_tensor.dtype )
         temp = self.c * ( self.tau * I + self.L_tensor )
         K_nu_tensor = torch.linalg.matrix_power(temp, nu)
 
+
         MAX_ITER = int(T / dt)
         sol = [ v0 ]
 
+        #if(w_noise is None):
+        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+
         for i in range(MAX_ITER):
-            noise = self.sample_stationary( torch.randn( v0.shape[0] ).to(torch.float64), nu=nu)
-            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+            # uncomment for smooth noise
+            #noise = self.sample_stationary( w_noise[i] , nu=nu)
+            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+
+            # uncomment for white noise
+            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * w_noise[i]
             v0 = v
             sol.append( v )
 
@@ -507,6 +517,12 @@ class Graph_Plotter():
                 self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
             else:
                 self.ax.text(x + x_offset, y + y_offset, label, fontsize=font_size, ha='center', va='center')
+
+
+    def plot_graph_wieghts(self, signal, weights, ax):
+        cmap = plt.cm.viridis
+        #nx.draw_networkx_nodes(self.graph, self.pos, nodelist=self.nodes, node_color=signal, node_size=100, cmap=self.cmap, ax=ax)
+        edge_collection = nx.draw_networkx_edges( self.graph, self.pos, edgelist=self.graph.edges(data=True), edge_color=weights[:110], edge_cmap=plt.cm.Reds, edge_vmin=weights.min(), edge_vmax=weights.max(), width=2, ax=ax)
 
 
     def plot_stationary(self, signal):

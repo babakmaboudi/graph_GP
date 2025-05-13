@@ -77,10 +77,10 @@ def sample_posterior():
     problem = forward_operator(v0, G) # creating a forward operator  
 
     # defining the log-posterior with a standard normal Gaussian prior
-    log_posterior = lambda x: -0.5*torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) - 0.5*torch.sum( x**2 )
+    neg_log_posterior = lambda x: 0.5*torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + 0.5*torch.sum( x**2 )
 
     def pyro_NLP(x):
-        return log_posterior(x['x'])
+        return neg_log_posterior(x['x'])
 
     nuts_kernel = NUTS(potential_fn=pyro_NLP)
 

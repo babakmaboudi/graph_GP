@@ -43,6 +43,9 @@ f, ax = plt.subplots()
 
 # Convert the dictionary keys to a list for indexing
 state_names = list(state_positions.keys())
+target = {'illinois', 'iowa', 'kansas', 'nebraska', 'oklahoma', 'arkansas', 'tennessee', 'kentucky', 'missouri'}
+state_indices = [i for i, s in enumerate(state_names) if s in target]
+
 ax.plot(samples[:, 25], label=state_names[25])  # Use state name for label
 
 for i in random_indices:
@@ -58,9 +61,9 @@ plt.show()
 #Corner plot:
 # Subset the samples to only the selected random traces
 # To append index 25 to it (using np.append) Initial state
-random_indices = np.append(random_indices, 25)
-
-subset_samples = samples[:, random_indices]
+#random_indices = np.append(random_indices, 25)
+#subset_samples = samples[:, random_indices]
+subset_samples = samples[:, state_indices]
 
 # Create the corner plot
 cl = 0.95

@@ -118,6 +118,10 @@ def estimate_MAP():
     plotter.draw_labels()
     #anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=out.shape[0], interval=10) # animating the dynamics
     ax.set_title('estimated signal with the MAP graph weights')
+
+    f,ax = plt.subplots(1)
+    plotter = Graph_Plotter(graph, out_est.detach().numpy(), ax, pos=state_positions)
+    plotter.plot_graph_wieghts(out_est.detach().numpy(), (torch.abs(x - x_true) ).detach().numpy(), ax)
     plt.show()
 
 if __name__ == '__main__':
