@@ -159,10 +159,12 @@ def MAP_stationary():
 
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
+    axes[0,0].set_title('noise free measurement')
 
     # plotting the true graph weights
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[0,1])
+    axes[0,1].set_title('true graph weights')
 
     temp = prior_map(x_true).detach().numpy()
     vmin = np.min(temp)
@@ -171,9 +173,11 @@ def MAP_stationary():
     # plotting the MAP graph weights
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_MAP.detach().numpy() ) # plotting the initial condition
+    axes[1,0].set_title('reconstructed measurement')
 
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1,1], vmin=vmin, vmax=vmax)
+    axes[1,1].set_title('estimated graph weights')
 
     plt.show()
 
@@ -193,7 +197,7 @@ def MAP_heat():
     MAX_ITER_prior = obs_data['MAX_ITER_prior']
     w_noise_true = obs_data['w_noise_true']
 
-    prior_map = prior_map = lambda x: 3-(prior_map_mean + prior_map_scale*torch.exp(x))
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
 
     # creating signal/observation with noise std defined in sigma with 1% noise level
     sigma = 0.01*torch.linalg.norm(y_true)
@@ -239,10 +243,12 @@ def MAP_heat():
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
     anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_true.shape[0], interval=100)
+    axes[0].set_title('noise-free measurements')
 
     # plotting the true graph weights
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
+    axes[1].set_title('true graph weights')
     
     temp = prior_map(x_true).detach().numpy()
     vmin = np.min(temp)
@@ -254,9 +260,11 @@ def MAP_heat():
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_MAP[-1].detach().numpy() ) # plotting the initial condition
     anim2 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_MAP.shape[0], interval=100)
+    axes[0].set_title('reconstructed measurements')
 
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
-    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)    
+    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)
+    axes[0].set_title('estimated graph weights')
 
 
     plt.show()

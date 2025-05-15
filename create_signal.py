@@ -139,7 +139,7 @@ def create_signal_heat_pytorch():
     prior_map_scale = .1 # output variance parameter
     prior_map_mean = .0
     prior_map_text = 'lambda x:  prior_map_mean + prior_map_scale*prior_map_parameter*torch.exp(x)' # the copy of the mapping for future reference
-    prior_map = lambda x:  3-(prior_map_mean + prior_map_scale*torch.exp(x)) # the actual mapping
+    prior_map = lambda x:  prior_map_mean + prior_map_scale*torch.exp(x) # the actual mapping
 
     # create a signal
     #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
