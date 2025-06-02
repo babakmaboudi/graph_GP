@@ -1,1 +1,4 @@
 /stat/stationary/reg1/*
+stat
+.DS_Store
+__pycache__

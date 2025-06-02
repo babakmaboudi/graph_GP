@@ -1,12 +1,13 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-import scipy as scp
-import matplotlib.animation as animation
-import networkx as nx
+#import matplotlib.pyplot as plt
+#import matplotlib
+#import scipy as scp
+#import matplotlib.animation as animation
 from scipy.sparse import csr_matrix
-import pickle
-import matplotlib.transforms as mtransforms
+#import pickle
+#import matplotlib.transforms as mtransforms
+import torch
+import networkx as nx
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
@@ -118,7 +119,7 @@ class Matern_graph():
 
 
     # sampling the non-stationary Gaussian process with pure white noise
-    def sample_heat(self, v0=None, nu=2, T=5.0, dt=0.01): #nu changed from 2 to 3
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None): #nu changed from 2 to 3
         """
         Samples from the non-stationary Gaussian process using the heat equation.
 
@@ -127,16 +128,18 @@ class Matern_graph():
         nu: Smoothness parameter (int, default: 2).
         T: Maximum time (float, default: 5.0).
         dt: Time step (float, default: 0.01).
+        w_noise: Stochastic drive in the SPDE (Brownian motion)
 
         Returns:
         --------
         np.array: Solution over time.
         """
-
-        if(v0 is None):
-            # initial condition is a sample from the stationary distribution
-            w = np.random.standard_normal(self.N)
-            v0 = self.sample_stationary(w, nu=nu)
+        
+        # uncomment if you want a random initial condition
+        #if(v0 is None):
+        #    # initial condition is a sample from the stationary distribution
+        #    w = np.random.standard_normal(self.N)
+        #    v0 = self.sample_stationary(w, nu=nu)
         #u0 = np.linalg.solve(np.linalg.matrix_power(self.tau*np.eye(self.N)+self.L, nu),w)
         #u0 = np.zeros_like(p)
 
@@ -155,11 +158,126 @@ class Matern_graph():
             #v = v0 - dt*(L@v0) + np.sqrt(dt)*np.random.standard_normal( v0.shape[0] )
 
             # uncomment for a noise model with a smooth covariance
-            noise = self.sample_stationary(np.random.standard_normal( v0.shape[0] ), nu=nu)
+            #noise = self.sample_stationary(np.random.standard_normal( v0.shape[0] ), nu=nu)
+            noise = w_noise[i]
             v = v0 - dt * (L_nu @ v0) + np.sqrt(dt) * noise
             v0 = v
             sol.append(v)
         return np.array(sol)
+
+class Matern_graph_pytorch():
+    """
+    A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
+    """
+    def __init__(self, graph, N=128, normalize=False): # N is the number of nodes on the circumference of the circle
+        """
+        Initializes the MaternGraph from a given networkx graph.
+
+        Parameters:
+        -----------
+        graph: Input graph (networkx.Graph)
+        N: Number of nodes (int, default: 128)
+        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+
+        Returns:
+        --------
+        None
+        """
+        element = list(graph.nodes())[0]
+        if nx.is_weighted(graph):
+            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
+        else:
+            if isinstance(element, int):
+                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
+            else:
+                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
+        self.W_sparse = W
+        crow_indices = torch.tensor(self.W_sparse.indptr, dtype=torch.int64)
+        col_indices = torch.tensor(self.W_sparse.indices, dtype=torch.int64)
+        values = torch.tensor(self.W_sparse.data, dtype=torch.float64)
+        self.W_sparse_tensor = torch.sparse_csr_tensor(crow_indices, col_indices, values, size=self.W_sparse.shape)
+
+        self.num_edges = W.data.shape
+
+        self.W_dense_tensor = self.W_sparse_tensor.to_dense().to(torch.float64)
+
+        self.N = self.W_sparse_tensor.shape[0]
+        # Diagonal matrix of accumulated sums
+        Dw_tensor = torch.diag( torch.sum( self.W_dense_tensor, dim=1) )
+
+        # Compute Laplacian
+        self.L_tensor = Dw_tensor - self.W_dense_tensor
+
+        # Normalize Laplacian if required
+        if normalize:
+            self.sqrt_norm_tensor = torch.sqrt( self.normalize_L( Dw_tensor ) )
+            self.L_tensor = self.sqrt_norm_tensor @ self.L_tensor @ self.sqrt_norm_tensor
+
+        # Set parameters, changed according to formulation from paper
+        #self.c = 0.1 time-dependent case
+        self.c = 1 #stationary case
+        self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
+
+
+    def update_L(self, W, normalize=True):
+        self.W_sparse_tensor = torch.sparse_csr_tensor( self.W_sparse_tensor.crow_indices(), self.W_sparse_tensor.col_indices(), W, size=self.W_sparse_tensor.shape, dtype=W.dtype )
+        W_dense = self.W_sparse_tensor.to_dense()
+        Dw = torch.diag( torch.sum( W_dense, dim=1 ) )
+        L_tensor = Dw - W_dense
+        if normalize:
+            L_tensor = self.sqrt_norm_tensor @ L_tensor @ self.sqrt_norm_tensor
+        self.L_tensor = L_tensor
+
+    def normalize_L(self, Dw):
+        """normalize L
+
+        Parameters:
+        -----------
+        Dw: Diagonal matrix of the sum of the weights
+
+        Returns:
+        --------
+        """
+        normalizer = torch.zeros_like(Dw)
+        for i in range(Dw.shape[0]):
+            if(Dw[i,i] == 0):
+                normalizer[i,i] = 0
+            else:
+                normalizer[i,i] = 1/Dw[i,i]
+        return normalizer
+
+    def sample_stationary(self, w, nu=2):
+        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
+        temp = self.c * ( self.tau * I + self.L_tensor )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
+        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
+        temp = self.c * ( self.tau * I + self.L_tensor )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+
+        MAX_ITER = int(T / dt)
+        sol = [ v0 ]
+
+        #if(w_noise is None):
+        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+
+        for i in range(MAX_ITER):
+            # uncomment for smooth noise
+            #noise = self.sample_stationary( w_noise[i] , nu=nu)
+            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+
+            # uncomment for white noise
+            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * w_noise[i]
+            v0 = v
+            sol.append( v )
+
+        return torch.stack(sol)
+
+
 
 class KL_expansion(Matern_graph):
     def __init__(self, graph, N=128, normalize=False):
@@ -274,160 +392,3 @@ class Matern_circle_graph():
             sol.append(v)
         return np.array(sol)
 
-
-class Plotter:
-    """
-    Class for plotting a sample in a plt axis handler.
-    """
-
-    def plot_sample(self, u, ax):
-        """
-        Plot sample in a plt axis handler
-
-        Parameters:
-        -----------
-        u: displacement (np.array)
-        ax: Matplotlib axis object
-
-        Returns:
-        --------
-        """
-        nbin = 64 # number of intensity colors
-        cmap = matplotlib.colormaps['plasma'] # choice of color palette
-        colors = cmap(np.linspace(0, 1, nbin)) # color codes in RGB
-
-        dist = np.max(u) - np.min(u) # normalizing value to make a double into an integer
-        for i in range(self.x.shape[0]-1):
-            color_id = int( (u[i]-np.min(u) )/dist * (nbin-1) ) # transforimg a double into an integer between 0 and nbin
-            x = self.x[i:i+2]
-            y = self.y[i:i+2]
-            ax.plot( x, y , color=colors[color_id], linewidth=3 )
-        ax.set_aspect('equal')
-
-    def plot_sample_displacement(self, u, ax):
-        """
-        Plot graph samples as normal displacements (currently has a bug)?
-
-        Parameters:
-        -----------
-        u: displacement (np.array)
-        ax: Matplotlib axis object
-
-        Returns:
-        --------
-        """
-        nbin = 64
-        cmap = matplotlib.colormaps['plasma']
-        colors = cmap(np.linspace(0, 1, nbin))
-
-        points = (1+0.05*u)*np.exp( 1j*self.theta )
-        xx = np.real(points)
-        yy = np.imag(points)
-
-
-        dist = np.max(u) - np.min(u)
-        for i in range(self.x.shape[0]-1):
-            color_id = int( (u[i]-np.min(u) )/dist * (nbin-1) )
-            x = xx[i:i+2] 
-            y = yy[i:i+2]
-            ax.plot( x, y, color='blue', linewidth=3 )
-        #ax.plot(self.x,self.y)
-        #ax.scatter(self.x,self.y, c=u, '.')
-        ax.set_aspect('equal')
-
-
-class Graph_Plotter():
-    """
-    Handles plotting of graph-based processes.
-    """
-    def __init__(self, graph, out, ax, pos=None):
-        """
-        Initializes the GraphPlotter.
-
-        Parameters:
-        -----------
-        graph: NetworkX graph instance
-        out: Simulation output
-        ax: Matplotlib axis object
-        """
-        self. out = out
-        self.graph = graph
-        self.nodes = graph.nodes()
-        self.ax = ax
-        #self.pos = nx.random_layout(self.graph)
-        if(pos is None):
-            self.pos = nx.spring_layout(self.graph)
-        else:
-            self.pos = pos
-        self.cmap = matplotlib.colormaps['plasma']
-
-        nx.draw_networkx_edges(self.graph, self.pos, alpha=0.2)
-
-
-    def draw_labels(self, labels=None, font_size=8, x_offset=0.02, y_offset=0.02):
-        """
-        Draw labels for nodes with an offset from the node positions.
-
-        Parameters:
-        -----------
-        labels: dict of labels, default None
-            The labels for each node. If None, node names are used as labels.
-        font_size: int, default 8
-            The font size of the labels.
-        x_offset: float, default 0.02
-            The horizontal offset for the label position (positive to move right, negative to move left).
-        y_offset: float, default 0.02
-            The vertical offset for the label position (positive to move up, negative to move down).
-
-        Returns:
-        --------
-        None
-        """
-        if labels is None:
-            # Default: label each node with its name
-            labels = {node: str(node) for node in self.nodes}
-
-        # Manually adjust the positions and add the labels with offset
-        for node, (x, y) in self.pos.items():
-            label = labels[node]
-            # Offset the labels using data units instead of axes
-            if label=="vermont":
-                self.ax.text(x -0.05, y -0.01, label, fontsize=font_size, ha='center', va='center')
-            elif label=="rhode island":
-                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
-            elif label=="new jersey":
-                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
-            elif label=="north carolina":
-                self.ax.text(x - 0.04, y - 0.02, label, fontsize=font_size, ha='center', va='center')
-            else:
-                self.ax.text(x + x_offset, y + y_offset, label, fontsize=font_size, ha='center', va='center')
-
-
-    def plot_stationary(self, signal):
-        """
-        Plots stationary signals on graph nodes.
-
-        Parameters:
-        -----------
-        signal: np.array
-
-        Returns:
-        --------
-        """
-        self.nc = nx.draw_networkx_nodes(self.graph, self.pos, nodelist=self.nodes, node_color=signal, node_size=100, cmap=self.cmap, ax=self.ax)
-
-
-    def update_frame(self,frame):
-        """
-        Updates node colors for animation frames.
-
-        Parameters:
-        -----------
-        frame: animation frame
-
-        Returns:
-        --------
-        """
-        signal = self.out[frame]
-        self.nc.set_array(np.array(signal))
-        self.ax.set_title('{}'.format(frame))
