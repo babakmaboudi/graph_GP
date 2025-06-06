@@ -106,7 +106,7 @@ class forward_operator_heat():
 
 
 def MAP_stationary():
-    with open('obs/torch/stationary/obs.pickle', 'rb') as handle:
+    with open('obs/torch/noise_free/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
     x_true = obs_data['x_true']
@@ -117,12 +117,12 @@ def MAP_stationary():
     prior_map_scale = obs_data['prior_map_scale']
     v0 = obs_data['v0']
 
-    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+    prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
 
     # creating signal/observation with noise std defined in sigma with 1% noise level
-    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma = 0.001*torch.linalg.norm(y_true)
     sigma2 = sigma*sigma
-    y_obs = y_true + sigma*noise_vec
+    y_obs = y_true# + sigma*noise_vec
 
     # creating a forward operator
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
@@ -270,6 +270,6 @@ def MAP_heat():
     plt.show()
 
 if __name__ == '__main__':
-    #MAP_stationary()
-    MAP_heat()
+    MAP_stationary()
+    #MAP_heat()
 
