@@ -12,7 +12,6 @@ import networkx as nx
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
 
-
 class Matern_graph():
     """
     A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
@@ -392,3 +391,13 @@ class Matern_circle_graph():
             sol.append(v)
         return np.array(sol)
 
+class edge_correlation():
+    def __init__(self, graph, num_edges):
+        self.graph = graph
+        self.num_edges = num_edges
+
+        distance = nx.shortest_path_length(self.graph, source='alabama', target='california')
+        edges = list(self.graph.edges())
+        #print(len(edges))
+        #print(distance)
+        print(edges)

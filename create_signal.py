@@ -2,7 +2,7 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from prior import Matern_graph, Matern_graph_pytorch
+from prior import Matern_graph, Matern_graph_pytorch, edge_correlation
 from plot_tools import Graph_Plotter
 import torch
 
@@ -240,10 +240,24 @@ def create_signal_stationary_pytorch():
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
+
+def test_local_correlation():
+    # loading the graph of the US states
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
+
+    # defining a Matern prior on the graph
+    G = Matern_graph(graph, normalize=True)
+
+    edge_prior = edge_correlation(graph, G.num_edges)
+
+
+
 if __name__ == '__main__':
     #create_signal_heat_numpy()
     #create_signal_stationary_numpy()
-    create_signal_heat_pytorch()
+    #create_signal_heat_pytorch()
     #create_signal_stationary_pytorch()
+    
+    test_local_correlation()
 
 
