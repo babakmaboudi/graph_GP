@@ -3,7 +3,7 @@ import torch
 from torch.optim import LBFGS
 import pickle
 import matplotlib.pyplot as plt
-from prior import Matern_graph_pytorch
+from prior import Matern_graph_pytorch, heat_periodic_pytorch_new
 from plot_tools import Graph_Plotter
 from matplotlib import animation
 
@@ -269,7 +269,64 @@ def MAP_heat():
 
     plt.show()
 
+def MAP_heat_1D():
+    dtype = torch.float64
+    with open('obs/torch/heat_1D/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    v0 = obs_data['v0']
+    T_max = obs_data['T_max']
+    dt = obs_data['dt']
+    N = obs_data['N']
+    nu = obs_data['nu']
+    MAX_ITER = int(T_max/dt)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+
+    prior = heat_periodic_pytorch_new(N)
+
+    def forward_operator(p,w):
+        prior.update_L( torch.exp(p) )
+        return prior.sample_heat( v0, nu=nu, T=T_max, dt=dt, w_noise=w )
+
+    # defining the log-posterior with a standard normal Gaussian prior
+    negative_log_posterior = lambda x, w: torch.sum( (forward_operator(x, w) - y_true)**2/sigma2 ) + torch.sum( (x)**2 ) + torch.sum( w**2 )
+
+    x = torch.zeros(N-1, dtype=torch.float64) # initial guess for the sampler
+    x.requires_grad_(True)
+
+    w = torch.randn(MAX_ITER, N, dtype=torch.float64)
+    w.requires_grad_(True)
+
+    optimizer = LBFGS( [x,w], max_iter=1000, line_search_fn="strong_wolfe" )
+
+    def closure():
+        optimizer.zero_grad()
+
+        # negative log posterior
+        loss = negative_log_posterior(x, w)
+
+        # computing the gradient
+        loss.backward()
+        print(loss)
+        return loss
+
+    optimizer.step(closure)
+
+    f,axes = plt.subplots(1)
+    axes.plot(torch.exp(x_true).detach().numpy(), label='true')
+    axes.plot(torch.exp( x ).detach().numpy(), label='estimated')
+
+    plt.legend()
+    plt.savefig('rough.pdf')
+    plt.show()
+
 if __name__ == '__main__':
     #MAP_stationary()
-    MAP_heat()
+    #MAP_heat()
+    MAP_heat_1D()
 

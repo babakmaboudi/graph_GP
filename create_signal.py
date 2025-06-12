@@ -2,9 +2,10 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from prior import Matern_graph, Matern_graph_pytorch
+from prior import Matern_graph, Matern_graph_pytorch, heat_periodic_pytorch_new
 from plot_tools import Graph_Plotter
 import torch
+import torch.nn.functional as F
 
 def create_signal_heat_numpy():
     # loading the graph of the US states
@@ -240,10 +241,103 @@ def create_signal_stationary_pytorch():
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
+
+def smooth_signal_1d(N, sigma=2.0, device=None):
+    """
+    Generate a 1D smooth signal with local correlation using Gaussian filtering.
+    """
+    x = torch.arange(-3*sigma, 3*sigma+1, device=device)
+    kernel = torch.exp(-0.5 * (x / sigma)**2)
+    kernel = kernel / kernel.sum()
+    
+    # Convert to shape (1, 1, kernel_size) for conv1d
+    kernel = kernel.view(1, 1, -1)
+    kernel_size = kernel.shape[-1]
+    
+    # White noise signal
+    white_noise = torch.randn(1, 1, N, device=device)
+    
+    # Pad the signal using reflection padding to avoid edge artifacts
+    pad_size = kernel_size // 2
+    white_noise_padded = F.pad(white_noise, (pad_size, pad_size), mode='reflect')
+    
+    # Apply convolution
+    smooth_signal = F.conv1d(white_noise_padded, kernel)
+    return smooth_signal.view(-1)
+
+def smooth_signal_1d_scaled(N, sigma=2.0, device=None):
+    """
+    Generate a 1D smooth signal with local correlation using Gaussian filtering
+    and scale it between 0.5 and 1.
+    """
+    x = torch.arange(-3*sigma, 3*sigma+1, device=device)
+    kernel = torch.exp(-0.5 * (x / sigma)**2)
+    kernel = kernel / kernel.sum()
+    
+    # Convert to shape (1, 1, kernel_size) for conv1d
+    kernel = kernel.view(1, 1, -1)
+    kernel_size = kernel.shape[-1]
+    
+    # White noise signal
+    white_noise = torch.randn(1, 1, N, device=device)
+    
+    # Pad the signal using reflection padding to avoid edge artifacts
+    pad_size = kernel_size // 2
+    white_noise_padded = F.pad(white_noise, (pad_size, pad_size), mode='reflect')
+    
+    # Apply convolution
+    smooth_signal = F.conv1d(white_noise_padded, kernel).view(-1)
+    
+    # Min-max normalize to [0, 1]
+    min_val = smooth_signal.min()
+    max_val = smooth_signal.max()
+    normalized_signal = (smooth_signal - min_val) / (max_val - min_val)
+    
+    # Scale to [0.5, 1]
+    scaled_signal = 0.5 + 0.5 * normalized_signal
+
+def create_signal_1D_heat():
+    dtype = torch.float64
+    N = 128
+    dx = 1./N
+
+    x = torch.linspace(0, 1.-dx, N)
+    input = torch.exp(-0.5 * ((x - 0.5) / 0.05) ** 2).to(dtype)
+
+    prior = heat_periodic_pytorch_new(N)
+
+    #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    #x_true = torch.randn(N-1).to(dtype)
+    #x = torch.linspace(0, 1.-dx, N-1).to(dtype)
+    #x_true = -0.5 * ((x - 0.5) / 0.05) ** 2
+
+    x_true = smooth_signal_1d(N-1, sigma=5.).to(dtype)
+
+    prior.update_L(  torch.exp(x_true) )
+    T_max=.5
+    dt = 0.005
+    MAX_ITER = int(T_max/dt)
+    w = torch.randn(MAX_ITER, N).to(dtype)
+    nu = 0
+    y_true = prior.sample_heat( input, nu=nu, T=T_max, dt=dt , w_noise=w)
+
+    # saving the signal file
+    obs_data = {'porb_type': 'heat_1D', 'v0': input, 'x_true': x_true, 'y_true': y_true, 'dt': dt, 'T_max': T_max, 'N': N, 'nu':nu}
+
+    with open('./obs/torch/heat_1D/obs.pickle', 'wb') as handle:
+        pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    plt.imshow(y_true)
+    plt.show()
+
+
+
 if __name__ == '__main__':
     #create_signal_heat_numpy()
     #create_signal_stationary_numpy()
-    create_signal_heat_pytorch()
+    #create_signal_heat_pytorch()
     #create_signal_stationary_pytorch()
+
+    create_signal_1D_heat()
 
 

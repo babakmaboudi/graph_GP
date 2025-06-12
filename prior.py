@@ -1,5 +1,5 @@
 import numpy as np
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 #import matplotlib
 #import scipy as scp
 #import matplotlib.animation as animation
@@ -11,7 +11,6 @@ import networkx as nx
 # Class for creating a Laplacian operator on a circular graph
 # The code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via 
 # SPDEs" (2022) by Nikitin et al.
-
 
 class Matern_graph():
     """
@@ -392,3 +391,195 @@ class Matern_circle_graph():
             sol.append(v)
         return np.array(sol)
 
+class heat_periodic_pytorch():
+    """
+    Class for creating a Laplacian operator on a periodic domain. Code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via
+    SPDEs" (2022) by Nikitin et al.Graph consists of nodes on the circumference of
+    a circle. The edges of the graph connects only the neighboring nodes weighted by
+    the distance. Since the nodes are chosen uniformly, the weights become a constant
+    value.
+    """
+    def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
+        """
+        Initializes the MaternCircleGraph.
+
+        Parameters:
+        N: Number of nodes on the circumference of the circle (int).
+        """
+        self.N = N
+        self.L_domain = 1.
+        self.dx = self.L_domain/self.N
+        points = torch.linspace(0,self.L_domain - self.dx,self.N)
+        
+        # initiating an empty adjacency matrix
+        self.W = torch.zeros([N,N])
+    
+        # weights on chosen as the distance between neighboring nodes
+        self.W[0,1] = 1
+        for i in range(1,self.N-1):
+            self.W[i,i-1] = 1
+            self.W[i,i+1] = 1
+        self.W[-1,-1] = 1
+        self.W[-1,-2] = 1
+
+        # defining the discretization element: length of a descrete arc
+        Dw = torch.diag( torch.sum(self.W, dim = 1)) # diagonal matrix of accumulated sums
+        Dw[0,0] = -2
+        Dw[-1,-1] = -2
+        self.L = -(Dw - self.W)/self.dx/self.dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
+
+        #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
+        self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
+
+    def sample_stationary(self, w, nu=2):
+        I = torch.eye( self.N, dtype=self.L.dtype )
+        temp = ( self.tau * I + self.L )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
+        #I = torch.eye( self.N, dtype=self.L.dtype )
+        #temp = -( self.tau * I + self.L )
+        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        K_nu_tensor = -self.L
+
+
+        MAX_ITER = int(T / dt)
+        sol = [ v0 ]
+
+        #if(w_noise is None):
+        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+
+        for i in range(MAX_ITER):
+            # uncomment for smooth noise
+            #noise = self.sample_stationary( w_noise[i] , nu=nu)
+            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+
+            # uncomment for white noise
+            #v = v0 + dt * (K_nu_tensor @ v0) #+ torch.sqrt( torch.tensor(dt) ) * w_noise[i]
+            v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 )
+
+            v0 = v
+            sol.append( v )
+
+        return torch.stack(sol)
+
+
+class heat_periodic_pytorch_new():
+    """
+    Class for creating a Laplacian operator on a periodic domain. Code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via
+    SPDEs" (2022) by Nikitin et al.Graph consists of nodes on the circumference of
+    a circle. The edges of the graph connects only the neighboring nodes weighted by
+    the distance. Since the nodes are chosen uniformly, the weights become a constant
+    value.
+    """
+    def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
+        """
+        Initializes the MaternCircleGraph.
+
+        Parameters:
+        N: Number of nodes on the circumference of the circle (int).
+        """
+        self.dtype = torch.float64
+        self.N = N
+        self.L_domain = 1.
+        self.dx = self.L_domain/self.N
+        points = torch.linspace(0,self.L_domain - self.dx,self.N)
+        
+        # initiating an empty adjacency matrix
+        self.W = torch.eye(N-1).to(self.dtype)
+   
+        self.Dx = torch.zeros(N-1,N)
+        # weights on chosen as the distance between neighboring nodes
+        self.Dx[0,0] = -1
+        self.Dx[0,1] = 1
+        for i in range(1,self.N-1):
+            self.Dx[i,i] = -1
+            self.Dx[i,i+1] = 1
+        self.Dx[-1,-2] = -1
+        self.Dx[-1,-1] = 1
+
+        self.Dx = self.Dx.to(self.dtype)
+
+        # defining the discretization element: length of a descrete arc
+        #Dw = torch.diag( torch.sum(self.W, dim = 1)) # diagonal matrix of accumulated sums
+        #self.L = -(Dw - self.W)/self.dx/self.dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
+        #self.L[0,-1]=0
+
+        self.L =- self.Dx.T @ self.W @ self.Dx# / self.dx/ self.dx
+        self.L[0,0] = -2
+        self.L[-1,-1] = -2
+        self.L = self.L/self.dx/self.dx
+
+        #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
+        self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
+
+    def update_L(self, w):
+        self.W = torch.diag(w)
+        self.L =- self.Dx.T @ self.W @ self.Dx / self.dx/ self.dx
+        self.L[0,0] = 1 + w[0]
+        self.L[-1,-1] = 1+w[-1]
+
+    def sample_stationary(self, w, nu=2):
+        I = torch.eye( self.N, dtype=self.L.dtype )
+        temp = ( self.tau * I + self.L ).to(self.dtype)
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
+
+        return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_heat(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+        #I = torch.eye( self.N, dtype=self.L.dtype )
+        #temp = -( self.tau * I + self.L )
+        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        K_nu_tensor = -self.L
+
+
+        MAX_ITER = int(T / dt)
+        sol = [ v0 ]
+
+        #if(w_noise is None):
+        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+
+        for i in range(MAX_ITER):
+            # uncomment for smooth noise
+            #noise = self.sample_stationary( w_noise[i] , nu=nu)
+            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+
+            # uncomment for white noise
+            #v = v0 + dt * (K_nu_tensor @ v0) #+ torch.sqrt( torch.tensor(dt) ) * w_noise[i]
+            #v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 + torch.sqrt(torch.tensor(dt))*w_noise[i] )
+
+            noise = self.sample_stationary( w_noise[i] , nu=nu)
+            v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 + torch.sqrt(torch.tensor(dt))*noise )
+            #v = torch.linalg.solve( torch.eye(self.N).to(self.dtype) + dt*K_nu_tensor, v0 )
+
+            v0 = v
+            sol.append( v )
+
+        return torch.stack(sol)
+
+if __name__ == "__main__":
+    N = 128
+    dx = 1./N
+
+    x = torch.linspace(0, 1.-dx, N)
+    input = torch.exp(-0.5 * ((x - 0.5) / 0.05) ** 2)
+
+    prior = heat_periodic_pytorch_new(N)
+    
+    #out = prior.sample_stationary(input)
+
+    p = torch.randn(N-1)
+    prior.update_L( torch.exp(p) )
+    
+    T_max=2.
+    dt = 0.005
+    MAX_ITER = int(T_max/dt)
+    w = torch.randn(MAX_ITER, N)
+    out = prior.sample_heat( input, nu=1, T=T_max, dt=dt, w_noise=w )
+
+    plt.imshow(out.detach().numpy())
+    plt.show()
