@@ -1,5 +1,5 @@
 import numpy as np
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 #import matplotlib
 #import scipy as scp
 #import matplotlib.animation as animation
@@ -396,8 +396,54 @@ class edge_correlation():
         self.graph = graph
         self.num_edges = num_edges
 
-        distance = nx.shortest_path_length(self.graph, source='alabama', target='california')
-        edges = list(self.graph.edges())
-        #print(len(edges))
-        #print(distance)
-        print(edges)
+        element = list(graph.nodes())[0]
+        if nx.is_weighted(graph):
+            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
+        else:
+            if isinstance(element, int):
+                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
+            else:
+                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
+        rows, cols = W.nonzero()
+
+        edges = [(i, j) for i, j in zip(rows, cols) if i >= j]
+
+        self.nodes = list(self.graph.nodes)
+
+        #W_weighted = W.copy()
+        self.cov = torch.zeros( len(edges), len(edges) ).to(torch.float64)
+
+        for idx1 in range( len(edges) ):
+            n1 = int( edges[idx1][0] )
+            n2 = int( edges[idx1][1] )
+            for idx2 in range( len(edges) ):
+                n3 = int( edges[idx2][0] )
+                n4 = int( edges[idx2][1] )
+                d = self.find_dist(n1,n2,n3,n4)
+                d = d + 1
+                if(idx1 == idx2):
+                    d = 0
+                self.cov[idx1,idx2] = torch.exp( torch.tensor(-0.5*d**2) )
+
+        mat = self.cov.detach().numpy()
+        eigvals, eigvecs = np.linalg.eig(mat)
+        print(eigvals)
+        exit()
+        sample = np.random.multivariate_normal(np.zeros(110), self.cov)
+        print(sample)
+        exit()
+        print( torch.min(self.cov) )
+        plt.imshow( self.cov )
+        plt.show()
+        self.dist = torch.distributions.MultivariateNormal(torch.zeros(len(edges)), covariance_matrix=self.cov)
+
+    def sample(self, num_samples):
+        return self.dist.sample(num_samples,)
+
+
+    def find_dist(self, i1,i2,i3,i4):
+        d1 = nx.shortest_path_length(self.graph, source=self.nodes[i1], target=self.nodes[i3])
+        d2 = nx.shortest_path_length(self.graph, source=self.nodes[i1], target=self.nodes[i4])
+        d3 = nx.shortest_path_length(self.graph, source=self.nodes[i2], target=self.nodes[i3])
+        d4 = nx.shortest_path_length(self.graph, source=self.nodes[i2], target=self.nodes[i4])
+        return np.min( np.array([d1,d2,d3,d4]) )
