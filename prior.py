@@ -524,10 +524,19 @@ class heat_periodic_pytorch_new():
 
     def sample_stationary(self, w, nu=2):
         I = torch.eye( self.N, dtype=self.L.dtype )
-        temp = ( self.tau * I + self.L ).to(self.dtype)
+        temp = ( self.tau * I + self.L  ).to(self.dtype) 
         K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
 
         return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_stationary_with_reaction(self, w, nu=2):
+        pass
+
+    def R(self, u):
+        pass
+
+    def dR(self, u):
+        pass
 
     def sample_heat(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
         #I = torch.eye( self.N, dtype=self.L.dtype )
