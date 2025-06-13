@@ -425,6 +425,10 @@ class edge_correlation():
                     d = 0
                 self.cov[idx1,idx2] = torch.exp( torch.tensor(-0.5*d**2) )
 
+        plt.imshow(self.cov)
+        plt.show()
+        exit()
+
         mat = self.cov.detach().numpy()
         eigvals, eigvecs = np.linalg.eig(mat)
         print(eigvals)
