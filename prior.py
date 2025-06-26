@@ -517,26 +517,78 @@ class heat_periodic_pytorch_new():
         self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
 
     def update_L(self, w):
-        self.W = torch.diag(w)
+        w = w.to(self.dtype)  # ensure w has the correct dtype
+        self.W = torch.diag(w)  # W will have dtype = self.dtype
+        self.Dx = self.Dx.to(self.dtype)  # convert Dx to same dtype
         self.L =- self.Dx.T @ self.W @ self.Dx / self.dx/ self.dx
         self.L[0,0] = 1 + w[0]
         self.L[-1,-1] = 1+w[-1]
 
     def sample_stationary(self, w, nu=2):
         I = torch.eye( self.N, dtype=self.L.dtype )
-        temp = ( self.tau * I + self.L  ).to(self.dtype) 
+        temp = ( self.tau * I + self.L  ).to(self.dtype) #add population density such that diag(rho*L) intead of L
         K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
+        w = w.to(K_nu_tensor.dtype)
+        return torch.linalg.solve( K_nu_tensor, w)
 
-        return torch.linalg.solve( K_nu_tensor, w )
 
-    def sample_stationary_with_reaction(self, w, nu=2):
-        pass
+    def sample_stationary_with_linearreaction(self, w, nu=2):
+        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
+        #Linear Reaction term
+        beta = 2.5
+        gamma = 1
+        R = (beta - gamma) * torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
+        R = self.R(w)
+        temp = self.tau * I + self.L - self.tau * R
+        temp = temp.to(self.dtype)  # ensure consistent dtype
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
+        w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
+        return torch.linalg.solve(K_nu_tensor, w)
 
-    def R(self, u):
-        pass
 
-    def dR(self, u):
-        pass
+    def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
+        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
+        ## Suppose rho is passed in or stored: rho.shape = (N,)
+        #RHO = torch.diag(self.rho.to(self.dtype))  # make it a matrix
+        ## Modify Laplacian
+        #L_weighted = RHO @ self.L
+
+        A = self.tau * I + self.L #L_weighted, add population density such that diag(rho*L) intead of L
+        K = torch.linalg.matrix_power(A, nu)
+        beta = 2.5
+        gamma = 1
+
+        # initial guess
+        f = torch.zeros_like(w, dtype=self.dtype)
+
+        for i in range(max_iter):
+            Rf = self.Rf(f, beta, gamma)  # nonlinear reaction R(f)
+            rhs = w + self.tau * Rf
+
+            K_inv_rhs = torch.linalg.solve(K, rhs)  # applying K^{-1}
+
+            Ff = f - K_inv_rhs  # residual
+
+            if torch.norm(Ff) < tol:
+                break
+
+            dRdf_diag = self.dRdf_diag(f,beta,gamma) # dR/df diagonal
+            J = torch.eye(self.N, dtype=self.dtype).to(self.dtype) - \
+                torch.linalg.solve(K, self.tau * dRdf_diag)  # Jacobian
+
+            delta = torch.linalg.solve(J, Ff)
+            f = f - delta
+
+        return f
+
+
+    def Rf(self, f, beta, gamma):
+        R = (beta - gamma) * f - beta * f ** 2
+        return R
+
+    def dRdf_diag(self, f, beta, gamma):
+        dR_diag = torch.diag((beta - gamma) - 2 * beta * f)
+        return dR_diag
 
     def sample_heat(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
         #I = torch.eye( self.N, dtype=self.L.dtype )
@@ -578,8 +630,9 @@ if __name__ == "__main__":
     input = torch.exp(-0.5 * ((x - 0.5) / 0.05) ** 2)
 
     prior = heat_periodic_pytorch_new(N)
-    
+
     #out = prior.sample_stationary(input)
+    out = prior.sample_stationary_with_nonlinreaction(input)
 
     p = torch.randn(N-1)
     prior.update_L( torch.exp(p) )
