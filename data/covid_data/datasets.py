@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import networkx as nx
 
+####from https://github.com/AlexanderVNikitin/covid19-on-graphs/tree/main
 
 PATH_TO_RAW_DATA = os.environ.get("COVID_RAW_DATA_PATH", "./data/us-states.csv")
 
