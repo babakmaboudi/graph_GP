@@ -526,20 +526,40 @@ class heat_periodic_pytorch_new():
 
     def sample_stationary(self, w, nu=2):
         I = torch.eye( self.N, dtype=self.L.dtype )
-        temp = ( self.tau * I + self.L  ).to(self.dtype) #add population density such that diag(rho*L) intead of L
+        temp = ( self.tau * I + self.L  ).to(self.dtype) #L is already scaled by population
         K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
         w = w.to(K_nu_tensor.dtype)
         return torch.linalg.solve( K_nu_tensor, w)
 
 
     def sample_stationary_with_linearreaction(self, w, nu=2):
+        """
+            Sample from the stationary solution of a linear reaction-diffusion system:
+
+                (τ I + L - τ R)^ν f = w
+
+            where L is the graph Laplacian (possibly scaled), τ is a diffusion scaling parameter,
+            R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Forcing or input term (e.g., white noise sample), shape (N,)
+            nu : int, optional
+                Power of the inverse operator to apply (default is 2)
+
+            Returns:
+            --------
+            torch.Tensor
+                Solution f of the modified system incorporating linear reaction
+        """
         I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
         #Linear Reaction term
         beta = 2.5
         gamma = 1
         R = (beta - gamma) * torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
-        R = self.R(w)
-        temp = self.tau * I + self.L - self.tau * R
+        #R = self.R(w)
+        temp = self.tau * I + self.L - self.tau * R #L is already scaled by population
         temp = temp.to(self.dtype)  # ensure consistent dtype
         K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
         w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
@@ -547,15 +567,37 @@ class heat_periodic_pytorch_new():
 
 
     def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
-        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
-        ## Suppose rho is passed in or stored: rho.shape = (N,)
-        #RHO = torch.diag(self.rho.to(self.dtype))  # make it a matrix
-        ## Modify Laplacian
-        #L_weighted = RHO @ self.L
+        """
+            Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
 
-        A = self.tau * I + self.L #L_weighted, add population density such that diag(rho*L) intead of L
+                (τ I + L)^ν f = w + τ * R(f)
+
+            where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
+            and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
+            using Newton's method.
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Input (e.g., noise sample), shape (N,)
+            nu : int, optional
+                Power of the smoothing operator (default: 2)
+            tol : float, optional
+                Tolerance for Newton iteration convergence (default: 1e-6)
+            max_iter : int, optional
+                Maximum number of Newton iterations (default: 20)
+
+            Returns:
+            --------
+            torch.Tensor
+                Approximate solution f of the nonlinear stationary PDE
+        """
+
+        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
+
+        A = self.tau * I + self.L #L is already scaled by population
         K = torch.linalg.matrix_power(A, nu)
-        beta = 2.5
+        beta = 5.
         gamma = 1
 
         # initial guess
@@ -583,12 +625,58 @@ class heat_periodic_pytorch_new():
 
 
     def Rf(self, f, beta, gamma):
+        """
+            Nonlinear reaction function R(f) for the reaction-diffusion model.
+
+            Implements:
+                R(f) = (β - γ)f - β f²
+
+            This models logistic-type growth with saturation.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient (birth rate)
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Nonlinear reaction term R(f), shape (N,)
+        """
         R = (beta - gamma) * f - beta * f ** 2
         return R
 
+
     def dRdf_diag(self, f, beta, gamma):
+        """
+            Diagonal Jacobian of the nonlinear reaction function R(f), used in Newton iteration.
+
+            Computes:
+                dR/df = (β - γ) - 2βf
+
+            Returns a diagonal matrix with the partial derivatives for each node.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Diagonal matrix of dR/df, shape (N, N)
+        """
         dR_diag = torch.diag((beta - gamma) - 2 * beta * f)
         return dR_diag
+
 
     def sample_heat(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
         #I = torch.eye( self.N, dtype=self.L.dtype )
@@ -622,6 +710,69 @@ class heat_periodic_pytorch_new():
 
         return torch.stack(sol)
 
+
+    def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+        """
+        Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
+
+        Solves:
+            f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
+
+        where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
+        The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
+
+        Parameters:
+        -----------
+        v0 : torch.Tensor
+            Initial condition, shape (N,)
+        nu : int, optional
+            Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
+        T : float, optional
+            Final simulation time (default: 5.0)
+        dt : float, optional
+            Time step size (default: 0.01)
+        w_noise : torch.Tensor or None, optional
+            Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
+
+        Returns:
+        --------
+        torch.Tensor
+            Time evolution of the state, shape (T/dt + 1, N)
+        """
+        beta = 10.
+        gamma = 1.0
+        #I = torch.eye( self.N, dtype=self.L.dtype )
+        #temp = -( self.tau * I + self.L )
+        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        K_nu_tensor = -self.L
+
+
+        MAX_ITER = int(T / dt)
+        sol = [v0]
+
+        for i in range(MAX_ITER):
+            f_n = v0
+
+            dt_tensor = torch.tensor(dt, dtype=self.dtype)
+
+            A = torch.eye(self.N, dtype=self.dtype) + dt_tensor * K_nu_tensor
+            Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
+            rhs = f_n + dt_tensor * Rf_n
+
+            if w_noise is not None:
+                noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
+                rhs += torch.sqrt(dt_tensor) * noise
+
+            # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
+            f_next = torch.linalg.solve(A, rhs)
+
+            v0 = f_next
+            sol.append(f_next)
+
+        return torch.stack(sol)
+
+
 if __name__ == "__main__":
     N = 128
     dx = 1./N
@@ -631,9 +782,6 @@ if __name__ == "__main__":
 
     prior = heat_periodic_pytorch_new(N)
 
-    #out = prior.sample_stationary(input)
-    out = prior.sample_stationary_with_nonlinreaction(input)
-
     p = torch.randn(N-1)
     prior.update_L( torch.exp(p) )
     
@@ -641,7 +789,17 @@ if __name__ == "__main__":
     dt = 0.005
     MAX_ITER = int(T_max/dt)
     w = torch.randn(MAX_ITER, N)
-    out = prior.sample_heat( input, nu=1, T=T_max, dt=dt, w_noise=w )
 
-    plt.imshow(out.detach().numpy())
+    # plot stationary:
+    # out1 = prior.sample_stationary(input)
+    # out2 = prior.sample_stationary_with_nonlinreaction(input)
+    #plt.plot(out1.detach().numpy())
+    #plt.plot(out2.detach().numpy())
+
+    # plot nonstationary:
+    out1 = prior.sample_heat(input, nu=1, T=T_max, dt=dt, w_noise=w )
+    out2 = prior.sample_heat_with_nonlinreaction(input, nu=1, T=T_max, dt=dt, w_noise=w )
+    #plt.imshow(out1.detach().numpy())
+    plt.imshow(out2.detach().numpy())
+
     plt.show()
