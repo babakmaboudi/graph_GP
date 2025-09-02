@@ -164,6 +164,112 @@ class Matern_graph():
             sol.append(v)
         return np.array(sol)
 
+class Matern_graph_pytorch_new():
+    def __init__(self, graph): # N is the number of nodes on the circumference of the circle
+        self.graph = graph
+        self.edge_list = list(graph.edges())  # consistent ordering
+
+    def get_edge_weights(self) -> torch.Tensor:
+        """Get edge weights as a PyTorch tensor."""
+        weights = [self.graph[u][v].get("weight", 0.0) for u, v in self.edge_list]
+        return torch.tensor(weights, dtype=torch.float64)
+
+    def set_edge_weights(self, weights: torch.Tensor):
+        """Set edge weights from a PyTorch tensor."""
+        if weights.numel() != len(self.edge_list):
+            raise ValueError(f"Expected tensor of size {len(self.edge_list)}, got {weights.numel()}")
+        for (u, v), w in zip(self.edge_list, weights.tolist()):
+            self.graph[u][v]['weight'] = float(w)
+
+    def update_edge_list(self):
+        """Refresh internal edge list (use if graph structure changes)."""
+        self.edge_list = list(self.graph.edges())
+
+    def compute_laplacian_from_tensor_autograd(
+        self,
+        weight_tensor: torch.Tensor,
+        normalized: bool = False,
+        make_pd: bool = False,
+        epsilon: float = 1e-5
+    ) -> torch.Tensor:
+        """
+        Compute a Laplacian matrix using edge weights in a way that supports autograd.
+        """
+        if weight_tensor.numel() != len(self.edge_list):
+            raise ValueError(f"Expected tensor of size {len(self.edge_list)}, got {weight_tensor.numel()}")
+
+        num_nodes = self.graph.number_of_nodes()
+        node_list = list(self.graph.nodes())
+        node_idx = {node: i for i, node in enumerate(node_list)}
+
+        # Build adjacency matrix using torch (not numpy/scipy!)
+        row_idx = []
+        col_idx = []
+        values = []
+
+        for idx, (u, v) in enumerate(self.edge_list):
+            i, j = node_idx[u], node_idx[v]
+            row_idx.extend([i, j])
+            col_idx.extend([j, i])
+            values.extend([weight_tensor[idx], weight_tensor[idx]])  # symmetric
+
+        row_idx = torch.tensor(row_idx, dtype=torch.long)
+        col_idx = torch.tensor(col_idx, dtype=torch.long)
+        values = torch.stack(values) if isinstance(values[0], torch.Tensor) else torch.tensor(values)
+
+        A = torch.sparse_coo_tensor(
+            indices=torch.stack([row_idx, col_idx]),
+            values=values,
+            size=(num_nodes, num_nodes)
+        ).to_dense()
+
+        degrees = A.sum(dim=1)  # Degree vector
+
+        if normalized:
+            d_inv_sqrt = torch.pow(degrees + 1e-8, -0.5)
+            D_inv_sqrt = torch.diag(d_inv_sqrt)
+            self.L = torch.eye(num_nodes) - D_inv_sqrt @ A @ D_inv_sqrt
+        else:
+            D = torch.diag(degrees)
+            self.L = D - A
+
+        if make_pd:
+            self.L += epsilon * torch.eye(num_nodes)
+        self.L.to(torch.float64)
+
+    def sample_stationary(self, w, nu=2):
+        I = torch.eye( 51, dtype=self.L.dtype )
+        temp = 1 * ( 1 * I + self.L ).to(self.L.dtype)
+        #K_nu_tensor = temp.to(torch.float64)
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
+
+        return torch.linalg.solve( K_nu_tensor, w )
+
+    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
+        I = torch.eye( 51, dtype=self.L.dtype )
+        temp = 1. * ( 1. * I + self.L )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
+
+        MAX_ITER = int(T / dt)
+        sol = [ v0 ]
+
+        #if(w_noise is None):
+        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+
+        for i in range(MAX_ITER):
+            # uncomment for smooth noise
+            #noise = self.sample_stationary( w_noise[i] , nu=nu)
+            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+
+            # uncomment for white noise
+            #term = w_noise[i]
+            term = self.sample_stationary(w_noise[i])
+            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * term#w_noise[i]
+            v0 = v
+            sol.append( v )
+
+        return torch.stack(sol)
+
 class Matern_graph_pytorch():
     """
     A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
@@ -219,6 +325,12 @@ class Matern_graph_pytorch():
 
 
     def update_L(self, W, normalize=True):
+        if(len(W) == 110):
+            row = self.W_sparse_tensor.nonzero()
+            col = self.W_sparse_tensor.nonzero()
+            print(row)
+            print(col)
+            exit()
         self.W_sparse_tensor = torch.sparse_csr_tensor( self.W_sparse_tensor.crow_indices(), self.W_sparse_tensor.col_indices(), W, size=self.W_sparse_tensor.shape, dtype=W.dtype )
         W_dense = self.W_sparse_tensor.to_dense()
         Dw = torch.diag( torch.sum( W_dense, dim=1 ) )
