@@ -271,7 +271,7 @@ def MAP_heat():
 
 def MAP_heat_1D():
     dtype = torch.float64
-    with open('obs/torch/heat_1D/obs.pickle', 'rb') as handle:
+    with open('./obs/torch/heat_1D/obs_non_smooth.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
     x_true = obs_data['x_true']
@@ -320,6 +320,12 @@ def MAP_heat_1D():
     f,axes = plt.subplots(1)
     axes.plot(torch.exp(x_true).detach().numpy(), label='true')
     axes.plot(torch.exp( x ).detach().numpy(), label='estimated')
+
+    # saving the MAP file
+    stat_data = {'x_map': x, 'w_map': w}
+
+    with open('./stat/heat_1D/non-smooth-MAP.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     plt.legend()
     plt.savefig('rough.pdf')

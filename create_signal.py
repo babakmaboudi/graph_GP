@@ -311,7 +311,8 @@ def create_signal_1D_heat():
     #x = torch.linspace(0, 1.-dx, N-1).to(dtype)
     #x_true = -0.5 * ((x - 0.5) / 0.05) ** 2
 
-    x_true = smooth_signal_1d(N-1, sigma=5.).to(dtype)
+    #x_true = smooth_signal_1d(N-1, sigma=5.).to(dtype)
+    x_true = torch.randn(N-1, dtype=torch.float64)
 
     prior.update_L(  torch.exp(x_true) )
     T_max=.5
@@ -324,7 +325,7 @@ def create_signal_1D_heat():
     # saving the signal file
     obs_data = {'porb_type': 'heat_1D', 'v0': input, 'x_true': x_true, 'y_true': y_true, 'dt': dt, 'T_max': T_max, 'N': N, 'nu':nu}
 
-    with open('./obs/torch/heat_1D/obs.pickle', 'wb') as handle:
+    with open('./obs/torch/heat_1D/obs_non_smooth.pickle', 'wb') as handle:
         pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     plt.imshow(y_true)
