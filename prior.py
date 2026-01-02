@@ -1,3 +1,4 @@
+from decimal import DecimalTuple
 import numpy as np
 import matplotlib.pyplot as plt
 #import matplotlib
@@ -164,10 +165,16 @@ class Matern_graph():
             sol.append(v)
         return np.array(sol)
 
-class Matern_graph_pytorch_new():
-    def __init__(self, graph): # N is the number of nodes on the circumference of the circle
+class Matern_graph_pytorch():
+    def __init__(self, graph, tau=1., dtype=torch.float64): # N is the number of nodes on the circumference of the circle
         self.graph = graph
         self.edge_list = list(graph.edges())  # consistent ordering
+        self.num_edges = self.graph.number_of_edges()
+        self.num_nodes = self.graph.number_of_nodes()
+
+        self.tau=0.1
+        self.dtype = dtype
+
 
     def get_edge_weights(self) -> torch.Tensor:
         """Get edge weights as a PyTorch tensor."""
@@ -270,125 +277,212 @@ class Matern_graph_pytorch_new():
 
         return torch.stack(sol)
 
-class Matern_graph_pytorch():
-    """
-    A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
-    """
-    def __init__(self, graph, N=128, normalize=False): # N is the number of nodes on the circumference of the circle
+    def sample_stationary_with_linearreaction(self, w, nu=2):
         """
-        Initializes the MaternGraph from a given networkx graph.
+            Sample from the stationary solution of a linear reaction-diffusion system:
+
+                (τ I + L - τ R)^ν f = w
+
+            where L is the graph Laplacian (possibly scaled), τ is a diffusion scaling parameter,
+            R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Forcing or input term (e.g., white noise sample), shape (N,)
+            nu : int, optional
+                Power of the inverse operator to apply (default is 2)
+
+            Returns:
+            --------
+            torch.Tensor
+                Solution f of the modified system incorporating linear reaction
+        """
+        I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+        #Linear Reaction term
+        beta = 2.5
+        gamma = 1
+        R = (beta - gamma) * torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+        #R = self.R(w)
+        temp = self.tau * I + self.L - self.tau * R #L is already scaled by population
+        temp = temp.to(self.dtype)  # ensure consistent dtype
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
+        w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
+        return torch.linalg.solve(K_nu_tensor, w)
+
+
+    def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
+        """
+            Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
+
+                (τ I + L)^ν f = w + τ * R(f)
+
+            where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
+            and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
+            using Newton's method.
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Input (e.g., noise sample), shape (N,)
+            nu : int, optional
+                Power of the smoothing operator (default: 2)
+            tol : float, optional
+                Tolerance for Newton iteration convergence (default: 1e-6)
+            max_iter : int, optional
+                Maximum number of Newton iterations (default: 20)
+
+            Returns:
+            --------
+            torch.Tensor
+                Approximate solution f of the nonlinear stationary PDE
+        """
+
+        I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+
+        A = self.tau * I + self.L #L is already scaled by population
+        K = torch.linalg.matrix_power(A, nu)
+        beta = 5.
+        gamma = 1
+
+        # initial guess
+        f = torch.zeros_like(w, dtype=self.dtype)
+
+        for i in range(max_iter):
+            Rf = self.Rf(f, beta, gamma)  # nonlinear reaction R(f)
+            rhs = w + self.tau * Rf
+
+            K_inv_rhs = torch.linalg.solve(K, rhs)  # applying K^{-1}
+
+            Ff = f - K_inv_rhs  # residual
+
+            if torch.norm(Ff) < tol:
+                break
+
+            dRdf_diag = self.dRdf_diag(f,beta,gamma) # dR/df diagonal
+            J = torch.eye(self.num_nodes, dtype=self.dtype).to(self.dtype) - \
+                torch.linalg.solve(K, self.tau * dRdf_diag)  # Jacobian
+
+            delta = torch.linalg.solve(J, Ff)
+            f = f - delta
+
+        return f
+
+
+    def Rf(self, f, beta, gamma):
+        """
+            Nonlinear reaction function R(f) for the reaction-diffusion model.
+
+            Implements:
+                R(f) = (β - γ)f - β f²
+
+            This models logistic-type growth with saturation.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient (birth rate)
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Nonlinear reaction term R(f), shape (N,)
+        """
+        R = (beta - gamma) * f - beta * f ** 2
+        return R
+
+
+    def dRdf_diag(self, f, beta, gamma):
+        """
+            Diagonal Jacobian of the nonlinear reaction function R(f), used in Newton iteration.
+
+            Computes:
+                dR/df = (β - γ) - 2βf
+
+            Returns a diagonal matrix with the partial derivatives for each node.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Diagonal matrix of dR/df, shape (N, N)
+        """
+        dR_diag = torch.diag((beta - gamma) - 2 * beta * f)
+        return dR_diag
+
+
+    def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+        """
+        Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
+
+        Solves:
+            f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
+
+        where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
+        The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
 
         Parameters:
         -----------
-        graph: Input graph (networkx.Graph)
-        N: Number of nodes (int, default: 128)
-        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+        v0 : torch.Tensor
+            Initial condition, shape (N,)
+        nu : int, optional
+            Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
+        T : float, optional
+            Final simulation time (default: 5.0)
+        dt : float, optional
+            Time step size (default: 0.01)
+        w_noise : torch.Tensor or None, optional
+            Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
 
         Returns:
         --------
-        None
+        torch.Tensor
+            Time evolution of the state, shape (T/dt + 1, N)
         """
-        element = list(graph.nodes())[0]
-        if nx.is_weighted(graph):
-            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
-        else:
-            if isinstance(element, int):
-                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
-            else:
-                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
-        self.W_sparse = W
-        crow_indices = torch.tensor(self.W_sparse.indptr, dtype=torch.int64)
-        col_indices = torch.tensor(self.W_sparse.indices, dtype=torch.int64)
-        values = torch.tensor(self.W_sparse.data, dtype=torch.float64)
-        self.W_sparse_tensor = torch.sparse_csr_tensor(crow_indices, col_indices, values, size=self.W_sparse.shape)
+        beta = 10.
+        gamma = 1.0
+        #I = torch.eye( self.N, dtype=self.L.dtype )
+        #temp = -( self.tau * I + self.L )
+        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
 
-        self.num_edges = W.data.shape
-
-        self.W_dense_tensor = self.W_sparse_tensor.to_dense().to(torch.float64)
-
-        self.N = self.W_sparse_tensor.shape[0]
-        # Diagonal matrix of accumulated sums
-        Dw_tensor = torch.diag( torch.sum( self.W_dense_tensor, dim=1) )
-
-        # Compute Laplacian
-        self.L_tensor = Dw_tensor - self.W_dense_tensor
-
-        # Normalize Laplacian if required
-        if normalize:
-            self.sqrt_norm_tensor = torch.sqrt( self.normalize_L( Dw_tensor ) )
-            self.L_tensor = self.sqrt_norm_tensor @ self.L_tensor @ self.sqrt_norm_tensor
-
-        # Set parameters, changed according to formulation from paper
-        #self.c = 0.1 time-dependent case
-        self.c = 1 #stationary case
-        self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
-
-
-    def update_L(self, W, normalize=True):
-        if(len(W) == 110):
-            row = self.W_sparse_tensor.nonzero()
-            col = self.W_sparse_tensor.nonzero()
-            print(row)
-            print(col)
-            exit()
-        self.W_sparse_tensor = torch.sparse_csr_tensor( self.W_sparse_tensor.crow_indices(), self.W_sparse_tensor.col_indices(), W, size=self.W_sparse_tensor.shape, dtype=W.dtype )
-        W_dense = self.W_sparse_tensor.to_dense()
-        Dw = torch.diag( torch.sum( W_dense, dim=1 ) )
-        L_tensor = Dw - W_dense
-        if normalize:
-            L_tensor = self.sqrt_norm_tensor @ L_tensor @ self.sqrt_norm_tensor
-        self.L_tensor = L_tensor
-
-    def normalize_L(self, Dw):
-        """normalize L
-
-        Parameters:
-        -----------
-        Dw: Diagonal matrix of the sum of the weights
-
-        Returns:
-        --------
-        """
-        normalizer = torch.zeros_like(Dw)
-        for i in range(Dw.shape[0]):
-            if(Dw[i,i] == 0):
-                normalizer[i,i] = 0
-            else:
-                normalizer[i,i] = 1/Dw[i,i]
-        return normalizer
-
-    def sample_stationary(self, w, nu=2):
-        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
-        temp = self.c * ( self.tau * I + self.L_tensor )
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
-        return torch.linalg.solve( K_nu_tensor, w )
-
-    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
-        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
-        temp = self.c * ( self.tau * I + self.L_tensor )
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+        K_nu_tensor = -self.L
 
 
         MAX_ITER = int(T / dt)
-        sol = [ v0 ]
-
-        #if(w_noise is None):
-        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
+        sol = [v0]
 
         for i in range(MAX_ITER):
-            # uncomment for smooth noise
-            #noise = self.sample_stationary( w_noise[i] , nu=nu)
-            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
+            f_n = v0
 
-            # uncomment for white noise
-            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * w_noise[i]
-            v0 = v
-            sol.append( v )
+            dt_tensor = torch.tensor(dt, dtype=self.dtype)
+
+            A = torch.eye(self.num_nodes, dtype=self.dtype) + dt_tensor * K_nu_tensor
+            Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
+            rhs = f_n + dt_tensor * Rf_n
+
+            if w_noise is not None:
+                noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
+                rhs += torch.sqrt(dt_tensor) * noise
+
+            # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
+            f_next = torch.linalg.solve(A, rhs)
+
+            v0 = f_next
+            sol.append(f_next)
 
         return torch.stack(sol)
-
-
 
 class KL_expansion(Matern_graph):
     def __init__(self, graph, N=128, normalize=False):
@@ -502,56 +596,6 @@ class Matern_circle_graph():
             v0 = v
             sol.append(v)
         return np.array(sol)
-
-class edge_correlation():
-    def __init__(self, graph, num_edges):
-        self.graph = graph
-        self.num_edges = num_edges
-
-        element = list(graph.nodes())[0]
-        if nx.is_weighted(graph):
-            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
-        else:
-            if isinstance(element, int):
-                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
-            else:
-                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
-        rows, cols = W.nonzero()
-
-        edges = [(i, j) for i, j in zip(rows, cols) if i >= j]
-
-        self.nodes = list(self.graph.nodes)
-
-        #W_weighted = W.copy()
-        self.cov = torch.zeros( len(edges), len(edges) ).to(torch.float64)
-
-        for idx1 in range( len(edges) ):
-            n1 = int( edges[idx1][0] )
-            n2 = int( edges[idx1][1] )
-            for idx2 in range( len(edges) ):
-                n3 = int( edges[idx2][0] )
-                n4 = int( edges[idx2][1] )
-                d = self.find_dist(n1,n2,n3,n4)
-                d = d + 1
-                if(idx1 == idx2):
-                    d = 0
-                self.cov[idx1,idx2] = torch.exp( torch.tensor(-0.5*d**2) )
-
-        plt.imshow(self.cov)
-        plt.show()
-        exit()
-
-        mat = self.cov.detach().numpy()
-        eigvals, eigvecs = np.linalg.eig(mat)
-        print(eigvals)
-        exit()
-        sample = np.random.multivariate_normal(np.zeros(110), self.cov)
-        print(sample)
-        exit()
-        print( torch.min(self.cov) )
-        plt.imshow( self.cov )
-        plt.show()
-        self.dist = torch.distributions.MultivariateNormal(torch.zeros(len(edges)), covariance_matrix=self.cov)
 
     def sample(self, num_samples):
         return self.dist.sample(num_samples,)

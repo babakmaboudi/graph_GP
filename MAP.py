@@ -3,7 +3,7 @@ import torch
 from torch.optim import LBFGS
 import pickle
 import matplotlib.pyplot as plt
-from prior import Matern_graph_pytorch_new
+from prior import Matern_graph_pytorch
 from plot_tools import Graph_Plotter
 from matplotlib import animation
 
@@ -50,6 +50,17 @@ class forward_operator_stationary():
 
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
         return self.G.sample_stationary(self.v0, nu=self.nu)
+
+class forward_operator_stationary_linearreaction():
+    def __init__(self, v0, G, nu, prior_map):
+        self.v0 = v0
+        self.G = G
+        self.prior_map = prior_map
+        self.nu = nu
+
+    def forward(self, p):
+        self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
+        return self.G.sample_stationary_with_linearreaction(self.v0, nu=self.nu)
 
 
 class forward_operator_heat():
@@ -106,7 +117,7 @@ class forward_operator_heat():
 
 
 def MAP_stationary():
-    with open('obs/torch/correlation/stationary/obs.pickle', 'rb') as handle:
+    with open('obs/stationary/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
     x_true = obs_data['x_true']
@@ -126,7 +137,7 @@ def MAP_stationary():
 
     # creating a forward operator
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
-    G = Matern_graph_pytorch_new(graph) # Initiating a graph Gaussian process
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
     problem = forward_operator_stationary(v0, G, nu_prior, prior_map) # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
@@ -154,7 +165,7 @@ def MAP_stationary():
 
     stat_data = {'x_MAP': x_MAP}
 
-    with open('./stat/paper_experiments/stationary/MAP.pickle', 'wb') as handle:
+    with open('./stat/stationary/MAP.pickle', 'wb') as handle:
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # plotting the true parameter
@@ -191,8 +202,95 @@ def MAP_stationary():
 
     plt.show()
 
+def MAP_stationary_linearreaction():
+    with open('obs/stationary_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+    problem = forward_operator_stationary_linearreaction(v0, G, nu_prior, prior_map) # creating a forward operator
+
+    # defining the log-posterior with a standard normal Gaussian prior
+    negative_log_posterior = lambda x: torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + torch.sum( x**2 )
+
+    x = torch.zeros(110, dtype=torch.float64) # initial guess for the sampler
+    x.requires_grad_(True)
+    optimizer = LBFGS( [x], max_iter=1000, line_search_fn="strong_wolfe" ) # defining an optimization method
+
+    def closure():
+        optimizer.zero_grad()
+
+        # negative log posterior
+        loss = negative_log_posterior(x)
+
+        # computing the gradient
+        loss.backward()
+        print(loss)
+        return loss
+
+    optimizer.step(closure)
+
+    x_MAP = x
+    y_MAP = problem.forward(x_MAP)
+
+    stat_data = {'x_MAP': x_MAP}
+
+    with open('./stat/stationary_linearreaction/MAP.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # plotting the true parameter
+    f, axes = plt.subplots(2,2, figsize=[12,12])
+    with open('stat_positions_exact.pickle' , 'rb') as handle:
+        state_positions = pickle.load(handle)
+
+
+    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions) # initiating the graph plotter
+    plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
+    axes[0,0].set_title('noise free measurement')
+    axes[0,0].set_aspect('equal')
+
+    # plotting the true graph weights
+    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions)
+    plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[0,1])
+    axes[0,1].set_title('true graph weights')
+    axes[0,1].set_aspect('equal')
+
+    temp = prior_map(x_true).detach().numpy()
+    vmin = np.min(temp)
+    vmax = np.max(temp)
+
+    # plotting the MAP graph weights
+    plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions) # initiating the graph plotter
+    plotter.plot_stationary(y_MAP.detach().numpy() ) # plotting the initial condition
+    axes[1,0].set_title('reconstructed measurement')
+    axes[1,0].set_aspect('equal')
+
+    plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions)
+    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1,1], vmin=vmin, vmax=vmax)
+    axes[1,1].set_title('estimated graph weights')
+    axes[1,1].set_aspect('equal')
+
+    plt.show()
+
+
 def MAP_heat():
-    with open('obs/torch/correlation/heat/obs.pickle', 'rb') as handle:
+    with open('obs/heat/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
     x_true = obs_data['x_true']
@@ -217,7 +315,7 @@ def MAP_heat():
 
     # creating a forward operator
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
-    G = Matern_graph_pytorch_new(graph) # Initiating a graph Gaussian process
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
     problem = forward_operator_heat(v0, G, prior_map, nu_prior, dt_prior, T_prior) # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
@@ -250,6 +348,11 @@ def MAP_heat():
     x_MAP = x
     w_noise_MAP = w_noise
     y_MAP = problem.forward(x_MAP, w_noise_MAP)
+
+    stat_data = {'x_MAP': x_MAP, 'w_noise_MAP': w_noise_MAP}
+
+    with open('./stat/heat/MAP.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
@@ -285,6 +388,7 @@ def MAP_heat():
     plt.show()
 
 if __name__ == '__main__':
-    MAP_stationary()
+    #MAP_stationary()
+    MAP_stationary_linearreaction()
     #MAP_heat()
 
