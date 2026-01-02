@@ -57,7 +57,7 @@ def sample_posterior():
     """
 
     # loading the observation vector
-    with open('./obs/stationary/reg1/obs.pickle', 'rb') as handle:
+    with open('./obs/stationary/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
     y_true =  torch.from_numpy( obs_data['y_true'] ).to(torch.float64)

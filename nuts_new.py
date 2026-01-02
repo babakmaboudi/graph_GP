@@ -103,7 +103,7 @@ class forward_operator_heat():
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
         return self.G.sample_heat(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise )
 
-def sample_posterior():
+def sample_posterior_stationary():
     with open('obs/torch/correlation/stationary/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
 
@@ -148,6 +148,11 @@ def sample_posterior():
 
     samples = mcmc.get_samples()
 
+    stat_data = {'samples': samples}
+
+    with open('./stat/paper_experiments/stationary/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     print(samples['x'].shape)
 
 
@@ -184,4 +189,4 @@ def sample_posterior():
     plt.show()
 
 if __name__ == '__main__':
-    sample_posterior()
+    sample_posterior_stationary()

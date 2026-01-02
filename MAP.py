@@ -152,19 +152,27 @@ def MAP_stationary():
     x_MAP = x
     y_MAP = problem.forward(x_MAP)
 
+    stat_data = {'x_MAP': x_MAP}
+
+    with open('./stat/paper_experiments/stationary/MAP.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
     # plotting the true parameter
     f, axes = plt.subplots(2,2, figsize=[12,12])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    with open('stat_positions_exact.pickle' , 'rb') as handle:
         state_positions = pickle.load(handle)
+
 
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
     axes[0,0].set_title('noise free measurement')
+    axes[0,0].set_aspect('equal')
 
     # plotting the true graph weights
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0,0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[0,1])
     axes[0,1].set_title('true graph weights')
+    axes[0,1].set_aspect('equal')
 
     temp = prior_map(x_true).detach().numpy()
     vmin = np.min(temp)
@@ -174,10 +182,12 @@ def MAP_stationary():
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions) # initiating the graph plotter
     plotter.plot_stationary(y_MAP.detach().numpy() ) # plotting the initial condition
     axes[1,0].set_title('reconstructed measurement')
+    axes[1,0].set_aspect('equal')
 
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1,1], vmin=vmin, vmax=vmax)
     axes[1,1].set_title('estimated graph weights')
+    axes[1,1].set_aspect('equal')
 
     plt.show()
 
@@ -234,7 +244,7 @@ def MAP_heat():
 
     # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    with open('./stat_positions_exact.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
     x_MAP = x
@@ -245,11 +255,13 @@ def MAP_heat():
     plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
     anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_true.shape[0], interval=100)
     axes[0].set_title('noise-free measurements')
+    #axes[0].set_aspect('equal')
 
     # plotting the true graph weights
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
     axes[1].set_title('true graph weights')
+    #axes[1].set_aspect('equal')
     
     temp = prior_map(x_true).detach().numpy()
     vmin = np.min(temp)
@@ -262,10 +274,12 @@ def MAP_heat():
     plotter.plot_stationary(y_MAP[-1].detach().numpy() ) # plotting the initial condition
     anim2 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_MAP.shape[0], interval=100)
     axes[0].set_title('reconstructed measurements')
+    #axes[0].set_aspect('equal')
 
     plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
     plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1])#, vmin=vmin, vmax=vmax)
     axes[0].set_title('estimated graph weights')
+    #axes[0].set_aspect('equal')
 
 
     plt.show()
