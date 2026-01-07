@@ -1,3 +1,4 @@
+from decimal import DecimalTuple
 import numpy as np
 import matplotlib.pyplot as plt
 #import matplotlib
@@ -165,98 +166,96 @@ class Matern_graph():
         return np.array(sol)
 
 class Matern_graph_pytorch():
-    """
-    A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
-    """
-    def __init__(self, graph, N=128, normalize=False): # N is the number of nodes on the circumference of the circle
-        """
-        Initializes the MaternGraph from a given networkx graph.
+    def __init__(self, graph, tau=1., dtype=torch.float64): # N is the number of nodes on the circumference of the circle
+        self.graph = graph
+        self.edge_list = list(graph.edges())  # consistent ordering
+        self.num_edges = self.graph.number_of_edges()
+        self.num_nodes = self.graph.number_of_nodes()
 
-        Parameters:
-        -----------
-        graph: Input graph (networkx.Graph)
-        N: Number of nodes (int, default: 128)
-        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+        self.tau=0.1
+        self.dtype = dtype
 
-        Returns:
-        --------
-        None
+
+    def get_edge_weights(self) -> torch.Tensor:
+        """Get edge weights as a PyTorch tensor."""
+        weights = [self.graph[u][v].get("weight", 0.0) for u, v in self.edge_list]
+        return torch.tensor(weights, dtype=torch.float64)
+
+    def set_edge_weights(self, weights: torch.Tensor):
+        """Set edge weights from a PyTorch tensor."""
+        if weights.numel() != len(self.edge_list):
+            raise ValueError(f"Expected tensor of size {len(self.edge_list)}, got {weights.numel()}")
+        for (u, v), w in zip(self.edge_list, weights.tolist()):
+            self.graph[u][v]['weight'] = float(w)
+
+    def update_edge_list(self):
+        """Refresh internal edge list (use if graph structure changes)."""
+        self.edge_list = list(self.graph.edges())
+
+    def compute_laplacian_from_tensor_autograd(
+        self,
+        weight_tensor: torch.Tensor,
+        normalized: bool = False,
+        make_pd: bool = False,
+        epsilon: float = 1e-5
+    ) -> torch.Tensor:
         """
-        element = list(graph.nodes())[0]
-        if nx.is_weighted(graph):
-            W = csr_matrix(nx.linalg.attrmatrix.attr_matrix(graph, "weight", rc_order=graph.nodes()))
+        Compute a Laplacian matrix using edge weights in a way that supports autograd.
+        """
+        if weight_tensor.numel() != len(self.edge_list):
+            raise ValueError(f"Expected tensor of size {len(self.edge_list)}, got {weight_tensor.numel()}")
+
+        num_nodes = self.graph.number_of_nodes()
+        node_list = list(self.graph.nodes())
+        node_idx = {node: i for i, node in enumerate(node_list)}
+
+        # Build adjacency matrix using torch (not numpy/scipy!)
+        row_idx = []
+        col_idx = []
+        values = []
+
+        for idx, (u, v) in enumerate(self.edge_list):
+            i, j = node_idx[u], node_idx[v]
+            row_idx.extend([i, j])
+            col_idx.extend([j, i])
+            values.extend([weight_tensor[idx], weight_tensor[idx]])  # symmetric
+
+        row_idx = torch.tensor(row_idx, dtype=torch.long)
+        col_idx = torch.tensor(col_idx, dtype=torch.long)
+        values = torch.stack(values) if isinstance(values[0], torch.Tensor) else torch.tensor(values)
+
+        A = torch.sparse_coo_tensor(
+            indices=torch.stack([row_idx, col_idx]),
+            values=values,
+            size=(num_nodes, num_nodes)
+        ).to_dense()
+
+        degrees = A.sum(dim=1)  # Degree vector
+
+        if normalized:
+            d_inv_sqrt = torch.pow(degrees + 1e-8, -0.5)
+            D_inv_sqrt = torch.diag(d_inv_sqrt)
+            self.L = torch.eye(num_nodes) - D_inv_sqrt @ A @ D_inv_sqrt
         else:
-            if isinstance(element, int):
-                W  =  nx.adjacency_matrix(graph, nodelist=range(len(graph.nodes())))
-            else:
-                W = nx.adjacency_matrix(graph, nodelist=graph.nodes())
-        self.W_sparse = W
-        crow_indices = torch.tensor(self.W_sparse.indptr, dtype=torch.int64)
-        col_indices = torch.tensor(self.W_sparse.indices, dtype=torch.int64)
-        values = torch.tensor(self.W_sparse.data, dtype=torch.float64)
-        self.W_sparse_tensor = torch.sparse_csr_tensor(crow_indices, col_indices, values, size=self.W_sparse.shape)
+            D = torch.diag(degrees)
+            self.L = D - A
 
-        self.num_edges = W.data.shape
-
-        self.W_dense_tensor = self.W_sparse_tensor.to_dense().to(torch.float64)
-
-        self.N = self.W_sparse_tensor.shape[0]
-        # Diagonal matrix of accumulated sums
-        Dw_tensor = torch.diag( torch.sum( self.W_dense_tensor, dim=1) )
-
-        # Compute Laplacian
-        self.L_tensor = Dw_tensor - self.W_dense_tensor
-
-        # Normalize Laplacian if required
-        if normalize:
-            self.sqrt_norm_tensor = torch.sqrt( self.normalize_L( Dw_tensor ) )
-            self.L_tensor = self.sqrt_norm_tensor @ self.L_tensor @ self.sqrt_norm_tensor
-
-        # Set parameters, changed according to formulation from paper
-        #self.c = 0.1 time-dependent case
-        self.c = 1 #stationary case
-        self.tau = 0.1 #length scale: the distance to which nodes are correlated. In the paper tau = 2nu/kappa^2
-
-
-    def update_L(self, W, normalize=True):
-        self.W_sparse_tensor = torch.sparse_csr_tensor( self.W_sparse_tensor.crow_indices(), self.W_sparse_tensor.col_indices(), W, size=self.W_sparse_tensor.shape, dtype=W.dtype )
-        W_dense = self.W_sparse_tensor.to_dense()
-        Dw = torch.diag( torch.sum( W_dense, dim=1 ) )
-        L_tensor = Dw - W_dense
-        if normalize:
-            L_tensor = self.sqrt_norm_tensor @ L_tensor @ self.sqrt_norm_tensor
-        self.L_tensor = L_tensor
-
-    def normalize_L(self, Dw):
-        """normalize L
-
-        Parameters:
-        -----------
-        Dw: Diagonal matrix of the sum of the weights
-
-        Returns:
-        --------
-        """
-        normalizer = torch.zeros_like(Dw)
-        for i in range(Dw.shape[0]):
-            if(Dw[i,i] == 0):
-                normalizer[i,i] = 0
-            else:
-                normalizer[i,i] = 1/Dw[i,i]
-        return normalizer
+        if make_pd:
+            self.L += epsilon * torch.eye(num_nodes)
+        self.L.to(torch.float64)
 
     def sample_stationary(self, w, nu=2):
-        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
-        temp = self.c * ( self.tau * I + self.L_tensor )
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+        I = torch.eye( 51, dtype=self.L.dtype )
+        temp = 1 * ( 1 * I + self.L ).to(self.L.dtype)
+        #K_nu_tensor = temp.to(torch.float64)
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
 
         return torch.linalg.solve( K_nu_tensor, w )
 
     def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
-        I = torch.eye( self.N, dtype=self.L_tensor.dtype )
-        temp = self.c * ( self.tau * I + self.L_tensor )
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
+        I = torch.eye( 51, dtype=self.L.dtype )
+        temp = 1. * ( 1. * I + self.L )
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
 
         MAX_ITER = int(T / dt)
         sol = [ v0 ]
@@ -270,13 +269,220 @@ class Matern_graph_pytorch():
             #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
 
             # uncomment for white noise
-            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * w_noise[i]
+            #term = w_noise[i]
+            term = self.sample_stationary(w_noise[i])
+            v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * term#w_noise[i]
             v0 = v
             sol.append( v )
 
         return torch.stack(sol)
 
+    def sample_stationary_with_linearreaction(self, w, nu=2):
+        """
+            Sample from the stationary solution of a linear reaction-diffusion system:
 
+                (τ I + L - τ R)^ν f = w
+
+            where L is the graph Laplacian (possibly scaled), τ is a diffusion scaling parameter,
+            R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Forcing or input term (e.g., white noise sample), shape (N,)
+            nu : int, optional
+                Power of the inverse operator to apply (default is 2)
+
+            Returns:
+            --------
+            torch.Tensor
+                Solution f of the modified system incorporating linear reaction
+        """
+        I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+        #Linear Reaction term
+        beta = 2.5
+        gamma = 1
+        R = (beta - gamma) * torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+        #R = self.R(w)
+        temp = self.tau * I + self.L - self.tau * R #L is already scaled by population
+        temp = temp.to(self.dtype)  # ensure consistent dtype
+        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
+        w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
+        return torch.linalg.solve(K_nu_tensor, w)
+
+
+    def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
+        """
+            Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
+
+                (τ I + L)^ν f = w + τ * R(f)
+
+            where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
+            and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
+            using Newton's method.
+
+            Parameters:
+            -----------
+            w : torch.Tensor
+                Input (e.g., noise sample), shape (N,)
+            nu : int, optional
+                Power of the smoothing operator (default: 2)
+            tol : float, optional
+                Tolerance for Newton iteration convergence (default: 1e-6)
+            max_iter : int, optional
+                Maximum number of Newton iterations (default: 20)
+
+            Returns:
+            --------
+            torch.Tensor
+                Approximate solution f of the nonlinear stationary PDE
+        """
+
+        I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+
+        A = self.tau * I + self.L #L is already scaled by population
+        K = torch.linalg.matrix_power(A, nu)
+        beta = 5.
+        gamma = 1
+
+        # initial guess
+        f = torch.zeros_like(w, dtype=self.dtype)
+
+        for i in range(max_iter):
+            Rf = self.Rf(f, beta, gamma)  # nonlinear reaction R(f)
+            rhs = w + self.tau * Rf
+
+            K_inv_rhs = torch.linalg.solve(K, rhs)  # applying K^{-1}
+
+            Ff = f - K_inv_rhs  # residual
+
+            if torch.norm(Ff) < tol:
+                break
+
+            dRdf_diag = self.dRdf_diag(f,beta,gamma) # dR/df diagonal
+            J = torch.eye(self.num_nodes, dtype=self.dtype).to(self.dtype) - \
+                torch.linalg.solve(K, self.tau * dRdf_diag)  # Jacobian
+
+            delta = torch.linalg.solve(J, Ff)
+            f = f - delta
+
+        return f
+
+
+    def Rf(self, f, beta, gamma):
+        """
+            Nonlinear reaction function R(f) for the reaction-diffusion model.
+
+            Implements:
+                R(f) = (β - γ)f - β f²
+
+            This models logistic-type growth with saturation.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient (birth rate)
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Nonlinear reaction term R(f), shape (N,)
+        """
+        R = (beta - gamma) * f - beta * f ** 2
+        return R
+
+
+    def dRdf_diag(self, f, beta, gamma):
+        """
+            Diagonal Jacobian of the nonlinear reaction function R(f), used in Newton iteration.
+
+            Computes:
+                dR/df = (β - γ) - 2βf
+
+            Returns a diagonal matrix with the partial derivatives for each node.
+
+            Parameters:
+            -----------
+            f : torch.Tensor
+                Current state vector, shape (N,)
+            beta : float
+                Reaction rate coefficient
+            gamma : float
+                Decay or death rate coefficient
+
+            Returns:
+            --------
+            torch.Tensor
+                Diagonal matrix of dR/df, shape (N, N)
+        """
+        dR_diag = torch.diag((beta - gamma) - 2 * beta * f)
+        return dR_diag
+
+
+    def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+        """
+        Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
+
+        Solves:
+            f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
+
+        where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
+        The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
+
+        Parameters:
+        -----------
+        v0 : torch.Tensor
+            Initial condition, shape (N,)
+        nu : int, optional
+            Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
+        T : float, optional
+            Final simulation time (default: 5.0)
+        dt : float, optional
+            Time step size (default: 0.01)
+        w_noise : torch.Tensor or None, optional
+            Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
+
+        Returns:
+        --------
+        torch.Tensor
+            Time evolution of the state, shape (T/dt + 1, N)
+        """
+        beta = 10.
+        gamma = 1.0
+        #I = torch.eye( self.N, dtype=self.L.dtype )
+        #temp = -( self.tau * I + self.L )
+        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+
+        K_nu_tensor = -self.L
+
+
+        MAX_ITER = int(T / dt)
+        sol = [v0]
+
+        for i in range(MAX_ITER):
+            f_n = v0
+
+            dt_tensor = torch.tensor(dt, dtype=self.dtype)
+
+            A = torch.eye(self.num_nodes, dtype=self.dtype) + dt_tensor * K_nu_tensor
+            Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
+            rhs = f_n + dt_tensor * Rf_n
+
+            if w_noise is not None:
+                noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
+                rhs += torch.sqrt(dt_tensor) * noise
+
+            # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
+            f_next = torch.linalg.solve(A, rhs)
+
+            v0 = f_next
+            sol.append(f_next)
+
+        return torch.stack(sol)
 
 class KL_expansion(Matern_graph):
     def __init__(self, graph, N=128, normalize=False):
@@ -391,415 +597,13 @@ class Matern_circle_graph():
             sol.append(v)
         return np.array(sol)
 
-class heat_periodic_pytorch():
-    """
-    Class for creating a Laplacian operator on a periodic domain. Code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via
-    SPDEs" (2022) by Nikitin et al.Graph consists of nodes on the circumference of
-    a circle. The edges of the graph connects only the neighboring nodes weighted by
-    the distance. Since the nodes are chosen uniformly, the weights become a constant
-    value.
-    """
-    def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
-        """
-        Initializes the MaternCircleGraph.
-
-        Parameters:
-        N: Number of nodes on the circumference of the circle (int).
-        """
-        self.N = N
-        self.L_domain = 1.
-        self.dx = self.L_domain/self.N
-        points = torch.linspace(0,self.L_domain - self.dx,self.N)
-        
-        # initiating an empty adjacency matrix
-        self.W = torch.zeros([N,N])
-    
-        # weights on chosen as the distance between neighboring nodes
-        self.W[0,1] = 1
-        for i in range(1,self.N-1):
-            self.W[i,i-1] = 1
-            self.W[i,i+1] = 1
-        self.W[-1,-1] = 1
-        self.W[-1,-2] = 1
-
-        # defining the discretization element: length of a descrete arc
-        Dw = torch.diag( torch.sum(self.W, dim = 1)) # diagonal matrix of accumulated sums
-        Dw[0,0] = -2
-        Dw[-1,-1] = -2
-        self.L = -(Dw - self.W)/self.dx/self.dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
-
-        #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
-        self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
-
-    def sample_stationary(self, w, nu=2):
-        I = torch.eye( self.N, dtype=self.L.dtype )
-        temp = ( self.tau * I + self.L )
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
-        return torch.linalg.solve( K_nu_tensor, w )
-
-    def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
-        #I = torch.eye( self.N, dtype=self.L.dtype )
-        #temp = -( self.tau * I + self.L )
-        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
-        K_nu_tensor = -self.L
-
-
-        MAX_ITER = int(T / dt)
-        sol = [ v0 ]
-
-        #if(w_noise is None):
-        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
-
-        for i in range(MAX_ITER):
-            # uncomment for smooth noise
-            #noise = self.sample_stationary( w_noise[i] , nu=nu)
-            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
-
-            # uncomment for white noise
-            #v = v0 + dt * (K_nu_tensor @ v0) #+ torch.sqrt( torch.tensor(dt) ) * w_noise[i]
-            v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 )
-
-            v0 = v
-            sol.append( v )
-
-        return torch.stack(sol)
-
-
-class heat_periodic_pytorch_new():
-    """
-    Class for creating a Laplacian operator on a periodic domain. Code is inspired by the work "Non-separable Spatio-temporal Graph Kernels via
-    SPDEs" (2022) by Nikitin et al.Graph consists of nodes on the circumference of
-    a circle. The edges of the graph connects only the neighboring nodes weighted by
-    the distance. Since the nodes are chosen uniformly, the weights become a constant
-    value.
-    """
-    def __init__(self, N=128): # N is the number of nodes on the circumference of the circle
-        """
-        Initializes the MaternCircleGraph.
-
-        Parameters:
-        N: Number of nodes on the circumference of the circle (int).
-        """
-        self.dtype = torch.float64
-        self.N = N
-        self.L_domain = 1.
-        self.dx = self.L_domain/self.N
-        points = torch.linspace(0,self.L_domain - self.dx,self.N)
-        
-        # initiating an empty adjacency matrix
-        self.W = torch.eye(N-1).to(self.dtype)
-   
-        self.Dx = torch.zeros(N-1,N)
-        # weights on chosen as the distance between neighboring nodes
-        self.Dx[0,0] = -1
-        self.Dx[0,1] = 1
-        for i in range(1,self.N-1):
-            self.Dx[i,i] = -1
-            self.Dx[i,i+1] = 1
-        self.Dx[-1,-2] = -1
-        self.Dx[-1,-1] = 1
-
-        self.Dx = self.Dx.to(self.dtype)
-
-        # defining the discretization element: length of a descrete arc
-        #Dw = torch.diag( torch.sum(self.W, dim = 1)) # diagonal matrix of accumulated sums
-        #self.L = -(Dw - self.W)/self.dx/self.dx # The graph Laplacian operator (differs from the paper by the nomalaization constant 1/dx/dx)
-        #self.L[0,-1]=0
-
-        self.L =- self.Dx.T @ self.W @ self.Dx# / self.dx/ self.dx
-        self.L[0,0] = -2
-        self.L[-1,-1] = -2
-        self.L = self.L/self.dx/self.dx
-
-        #self.tau = 1/(0.5*2*np.pi)/(0.5*2*np.pi)
-        self.tau = 0.1 # The length scale: the distantce to which nodes are correlated. In the paper tau = 2nu/kappa^2
-
-    def update_L(self, w):
-        w = w.to(self.dtype)  # ensure w has the correct dtype
-        self.W = torch.diag(w)  # W will have dtype = self.dtype
-        self.Dx = self.Dx.to(self.dtype)  # convert Dx to same dtype
-        self.L =- self.Dx.T @ self.W @ self.Dx / self.dx/ self.dx
-        self.L[0,0] = 1 + w[0]
-        self.L[-1,-1] = 1+w[-1]
-
-    def sample_stationary(self, w, nu=2):
-        I = torch.eye( self.N, dtype=self.L.dtype )
-        temp = ( self.tau * I + self.L  ).to(self.dtype) #L is already scaled by population
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
-        w = w.to(K_nu_tensor.dtype)
-        return torch.linalg.solve( K_nu_tensor, w)
-
-
-    def sample_stationary_with_linearreaction(self, w, nu=2):
-        """
-            Sample from the stationary solution of a linear reaction-diffusion system:
-
-                (τ I + L - τ R)^ν f = w
-
-            where L is the graph Laplacian (possibly scaled), τ is a diffusion scaling parameter,
-            R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
-
-            Parameters:
-            -----------
-            w : torch.Tensor
-                Forcing or input term (e.g., white noise sample), shape (N,)
-            nu : int, optional
-                Power of the inverse operator to apply (default is 2)
-
-            Returns:
-            --------
-            torch.Tensor
-                Solution f of the modified system incorporating linear reaction
-        """
-        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
-        #Linear Reaction term
-        beta = 2.5
-        gamma = 1
-        R = (beta - gamma) * torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
-        #R = self.R(w)
-        temp = self.tau * I + self.L - self.tau * R #L is already scaled by population
-        temp = temp.to(self.dtype)  # ensure consistent dtype
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
-        w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
-        return torch.linalg.solve(K_nu_tensor, w)
-
-
-    def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
-        """
-            Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
-
-                (τ I + L)^ν f = w + τ * R(f)
-
-            where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
-            and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
-            using Newton's method.
-
-            Parameters:
-            -----------
-            w : torch.Tensor
-                Input (e.g., noise sample), shape (N,)
-            nu : int, optional
-                Power of the smoothing operator (default: 2)
-            tol : float, optional
-                Tolerance for Newton iteration convergence (default: 1e-6)
-            max_iter : int, optional
-                Maximum number of Newton iterations (default: 20)
-
-            Returns:
-            --------
-            torch.Tensor
-                Approximate solution f of the nonlinear stationary PDE
-        """
-
-        I = torch.eye(self.N, dtype=self.L.dtype).to(self.dtype)
-
-        A = self.tau * I + self.L #L is already scaled by population
-        K = torch.linalg.matrix_power(A, nu)
-        beta = 5.
-        gamma = 1
-
-        # initial guess
-        f = torch.zeros_like(w, dtype=self.dtype)
-
-        for i in range(max_iter):
-            Rf = self.Rf(f, beta, gamma)  # nonlinear reaction R(f)
-            rhs = w + self.tau * Rf
-
-            K_inv_rhs = torch.linalg.solve(K, rhs)  # applying K^{-1}
-
-            Ff = f - K_inv_rhs  # residual
-
-            if torch.norm(Ff) < tol:
-                break
-
-            dRdf_diag = self.dRdf_diag(f,beta,gamma) # dR/df diagonal
-            J = torch.eye(self.N, dtype=self.dtype).to(self.dtype) - \
-                torch.linalg.solve(K, self.tau * dRdf_diag)  # Jacobian
-
-            delta = torch.linalg.solve(J, Ff)
-            f = f - delta
-
-        return f
-
-
-    def Rf(self, f, beta, gamma):
-        """
-            Nonlinear reaction function R(f) for the reaction-diffusion model.
-
-            Implements:
-                R(f) = (β - γ)f - β f²
-
-            This models logistic-type growth with saturation.
-
-            Parameters:
-            -----------
-            f : torch.Tensor
-                Current state vector, shape (N,)
-            beta : float
-                Reaction rate coefficient (birth rate)
-            gamma : float
-                Decay or death rate coefficient
-
-            Returns:
-            --------
-            torch.Tensor
-                Nonlinear reaction term R(f), shape (N,)
-        """
-        R = (beta - gamma) * f - beta * f ** 2
-        return R
-
-
-    def dRdf_diag(self, f, beta, gamma):
-        """
-            Diagonal Jacobian of the nonlinear reaction function R(f), used in Newton iteration.
-
-            Computes:
-                dR/df = (β - γ) - 2βf
-
-            Returns a diagonal matrix with the partial derivatives for each node.
-
-            Parameters:
-            -----------
-            f : torch.Tensor
-                Current state vector, shape (N,)
-            beta : float
-                Reaction rate coefficient
-            gamma : float
-                Decay or death rate coefficient
-
-            Returns:
-            --------
-            torch.Tensor
-                Diagonal matrix of dR/df, shape (N, N)
-        """
-        dR_diag = torch.diag((beta - gamma) - 2 * beta * f)
-        return dR_diag
-
-
-    def sample_heat(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
-        #I = torch.eye( self.N, dtype=self.L.dtype )
-        #temp = -( self.tau * I + self.L )
-        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
-        K_nu_tensor = -self.L
-
-
-        MAX_ITER = int(T / dt)
-        sol = [ v0 ]
-
-        #if(w_noise is None):
-        #    w_noise = torch.randn(MAX_ITER, v0.shape[0], dtype=torch.float64)
-
-        for i in range(MAX_ITER):
-            # uncomment for smooth noise
-            #noise = self.sample_stationary( w_noise[i] , nu=nu)
-            #v = v0 - dt * (K_nu_tensor @ v0) + torch.sqrt( torch.tensor(dt) ) * noise
-
-            # uncomment for white noise
-            #v = v0 + dt * (K_nu_tensor @ v0) #+ torch.sqrt( torch.tensor(dt) ) * w_noise[i]
-            #v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 + torch.sqrt(torch.tensor(dt))*w_noise[i] )
-
-            noise = self.sample_stationary( w_noise[i] , nu=nu)
-            v = torch.linalg.solve( torch.eye(self.N) + dt*K_nu_tensor, v0 + torch.sqrt(torch.tensor(dt))*noise )
-            #v = torch.linalg.solve( torch.eye(self.N).to(self.dtype) + dt*K_nu_tensor, v0 )
-
-            v0 = v
-            sol.append( v )
-
-        return torch.stack(sol)
-
-
-    def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
-        """
-        Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
-
-        Solves:
-            f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
-
-        where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
-        The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
-
-        Parameters:
-        -----------
-        v0 : torch.Tensor
-            Initial condition, shape (N,)
-        nu : int, optional
-            Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
-        T : float, optional
-            Final simulation time (default: 5.0)
-        dt : float, optional
-            Time step size (default: 0.01)
-        w_noise : torch.Tensor or None, optional
-            Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
-
-        Returns:
-        --------
-        torch.Tensor
-            Time evolution of the state, shape (T/dt + 1, N)
-        """
-        beta = 10.
-        gamma = 1.0
-        #I = torch.eye( self.N, dtype=self.L.dtype )
-        #temp = -( self.tau * I + self.L )
-        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
-
-        K_nu_tensor = -self.L
-
-
-        MAX_ITER = int(T / dt)
-        sol = [v0]
-
-        for i in range(MAX_ITER):
-            f_n = v0
-
-            dt_tensor = torch.tensor(dt, dtype=self.dtype)
-
-            A = torch.eye(self.N, dtype=self.dtype) + dt_tensor * K_nu_tensor
-            Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
-            rhs = f_n + dt_tensor * Rf_n
-
-            if w_noise is not None:
-                noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
-                rhs += torch.sqrt(dt_tensor) * noise
-
-            # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
-            f_next = torch.linalg.solve(A, rhs)
-
-            v0 = f_next
-            sol.append(f_next)
-
-        return torch.stack(sol)
-
-
-if __name__ == "__main__":
-    N = 128
-    dx = 1./N
-
-    x = torch.linspace(0, 1.-dx, N)
-    input = torch.exp(-0.5 * ((x - 0.5) / 0.05) ** 2)
-
-    prior = heat_periodic_pytorch_new(N)
-
-    p = torch.randn(N-1)
-    prior.update_L( torch.exp(p) )
-    
-    T_max=2.
-    dt = 0.005
-    MAX_ITER = int(T_max/dt)
-    w = torch.randn(MAX_ITER, N)
-
-    # plot stationary:
-    # out1 = prior.sample_stationary(input)
-    # out2 = prior.sample_stationary_with_nonlinreaction(input)
-    #plt.plot(out1.detach().numpy())
-    #plt.plot(out2.detach().numpy())
-
-    # plot nonstationary:
-    out1 = prior.sample_heat(input, nu=1, T=T_max, dt=dt, w_noise=w )
-    out2 = prior.sample_heat_with_nonlinreaction(input, nu=1, T=T_max, dt=dt, w_noise=w )
-    #plt.imshow(out1.detach().numpy())
-    plt.imshow(out2.detach().numpy())
-
-    plt.show()
+    def sample(self, num_samples):
+        return self.dist.sample(num_samples,)
+
+
+    def find_dist(self, i1,i2,i3,i4):
+        d1 = nx.shortest_path_length(self.graph, source=self.nodes[i1], target=self.nodes[i3])
+        d2 = nx.shortest_path_length(self.graph, source=self.nodes[i1], target=self.nodes[i4])
+        d3 = nx.shortest_path_length(self.graph, source=self.nodes[i2], target=self.nodes[i3])
+        d4 = nx.shortest_path_length(self.graph, source=self.nodes[i2], target=self.nodes[i4])
+        return np.min( np.array([d1,d2,d3,d4]) )
