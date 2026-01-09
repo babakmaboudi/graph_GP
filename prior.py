@@ -166,7 +166,22 @@ class Matern_graph():
         return np.array(sol)
 
 class Matern_graph_pytorch():
+    """
+    A class to compute the Matern covariance of the form (tau*I + Laplacian)^nu from a graph.
+    """
     def __init__(self, graph, tau=1., dtype=torch.float64): # N is the number of nodes on the circumference of the circle
+        """
+        Initializes the MaternGraph from a given networkx graph.
+        Parameters:
+        -----------
+        graph: Input graph (networkx.Graph)
+        N: Number of nodes (int, default: 128)
+        normalize: Flag for whether to normalize the Laplacian (boolean, default: False)
+
+        Returns:
+        --------
+        None
+        """
         self.graph = graph
         self.edge_list = list(graph.edges())  # consistent ordering
         self.num_edges = self.graph.number_of_edges()
@@ -277,13 +292,15 @@ class Matern_graph_pytorch():
 
         return torch.stack(sol)
 
-    def sample_stationary_with_linearreaction(self, w, nu=2):
+    def sample_stationary_with_linearreaction(self, w, nu=2, beta=2.5, gamma=1.0):
         """
             Sample from the stationary solution of a linear reaction-diffusion system:
 
-                (τ I + L - τ R)^ν f = w
+                Solves: (tau I + L - tau R_lin)^nu f = w
+                where R_lin comes from linearizing R(f) = (beta-gamma)c - beta f^2 around f0:
+                R_lin(f) = (-2*beta*f0) * f  ->  R_lin operator = (-2*beta*f0) * I
 
-            where L is the graph Laplacian (possibly scaled), τ is a diffusion scaling parameter,
+            where L is the graph Laplacian (possibly scaled), tau is a diffusion scaling parameter,
             R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
 
             Parameters:
@@ -298,75 +315,201 @@ class Matern_graph_pytorch():
             torch.Tensor
                 Solution f of the modified system incorporating linear reaction
         """
-        I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
-        #Linear Reaction term
-        beta = 2.5
-        gamma = 1
-        R = (beta - gamma) * torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
-        #R = self.R(w)
-        temp = self.tau * I + self.L - self.tau * R #L is already scaled by population
-        temp = temp.to(self.dtype)  # ensure consistent dtype
-        K_nu_tensor = torch.linalg.matrix_power(temp, nu).to(self.dtype)
-        w = w.to(self.dtype)  # ensure w matches dtype of K_nu_tensor
-        return torch.linalg.solve(K_nu_tensor, w)
 
-
-    def sample_stationary_with_nonlinreaction(self, w, nu=2, tol=1e-6, max_iter=20):
-        """
-            Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
-
-                (τ I + L)^ν f = w + τ * R(f)
-
-            where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
-            and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
-            using Newton's method.
-
-            Parameters:
-            -----------
-            w : torch.Tensor
-                Input (e.g., noise sample), shape (N,)
-            nu : int, optional
-                Power of the smoothing operator (default: 2)
-            tol : float, optional
-                Tolerance for Newton iteration convergence (default: 1e-6)
-            max_iter : int, optional
-                Maximum number of Newton iterations (default: 20)
-
-            Returns:
-            --------
-            torch.Tensor
-                Approximate solution f of the nonlinear stationary PDE
-        """
-
+        device = self.L.device
+        dtype = self.dtype  # or self.L.dtype if you prefer
+        N = self.num_nodes
+        f0 = (beta-gamma)/beta # equilibrium
         I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
 
-        A = self.tau * I + self.L #L is already scaled by population
+        # Build diagonal of R_lin: r_i = -2*beta*f0_i
+        if torch.is_tensor(f0):
+            f0_vec = f0.to(device=device, dtype=dtype).reshape(-1)
+            if f0_vec.numel() != N:
+                raise ValueError(f"f0 tensor must have shape ({N},), got {tuple(f0.shape)}")
+            r_diag = (-2.0 * beta) * f0_vec
+            R_lin = torch.diag(r_diag)  # dense; OK for small/medium N
+        else:
+            r = (-2.0 * beta) * float(f0)
+            R_lin = r * I
+
+        A = (self.tau * I + self.L.to(device=device, dtype=dtype) - R_lin).to(dtype)
+
+        # Compute f = A^{-nu} w via repeated solves (numerically safer than forming A^nu)
+        x = w
+        for _ in range(nu):
+            x = torch.linalg.solve(A, x)
+        return x
+
+    def sample_stationary_with_nonlinearreaction(
+            self, w, nu=2, tol=1e-6, max_iter=20,
+            beta=2.5, gamma=1.0,
+            alpha=0.008,  # reaction strength (separate from tau)
+            mu=0.0,  # leakage / extra damping
+            clamp01=True,  # enforce prevalence bounds
+            ls_max=10  # line-search steps
+    ):
+        """
+        Solve: ( (tau I + L + mu I)^nu ) f = w + alpha * R(f)
+
+        Newton on: G(f) = K f - alpha R(f) - w = 0
+        with:      J(f) = K - alpha R'(f)
+
+        tau controls correlation length / smoothing.
+        alpha controls reaction strength.
+        mu adds extra damping (helps stability).
+        What to do when you detect instability
+        •	turn on damped Newton / line search
+        •	lower alpha (×0.1)
+        •	add leakage mu (e.g. mu=1e-2 then 1e-1)
+        •	clamp f to [0,1] if it’s a ratio
+        •	start closer to equilibrium instead of zeros
+        """
+        device = self.L.device
+        dtype = self.dtype
+        N = self.num_nodes
+
+        I = torch.eye(N, device=device, dtype=dtype)
+        w = w.to(device=device, dtype=dtype)
+
+        # Build K = (A)^nu with A = tau I + L + mu I
+        A = (self.tau + mu) * I + self.L.to(device=device, dtype=dtype)
         K = torch.linalg.matrix_power(A, nu)
-        beta = 5.
-        gamma = 1
 
         # initial guess
-        f = torch.zeros_like(w, dtype=self.dtype)
+        f = torch.zeros_like(w, dtype=dtype, device=device)
 
         for i in range(max_iter):
-            Rf = self.Rf(f, beta, gamma)  # nonlinear reaction R(f)
-            rhs = w + self.tau * Rf
+            # Residual at current f
+            Rf = self.Rf(f, beta, gamma)  # shape (N,)
+            G = K @ f - alpha * Rf - w  # <-- alpha, NOT tau
 
-            K_inv_rhs = torch.linalg.solve(K, rhs)  # applying K^{-1}
-
-            Ff = f - K_inv_rhs  # residual
-
-            if torch.norm(Ff) < tol:
+            Gnorm = torch.linalg.norm(G)
+            if Gnorm < tol:
                 break
 
-            dRdf_diag = self.dRdf_diag(f,beta,gamma) # dR/df diagonal
-            J = torch.eye(self.num_nodes, dtype=self.dtype).to(self.dtype) - \
-                torch.linalg.solve(K, self.tau * dRdf_diag)  # Jacobian
+            # Reaction derivative (diagonal for local reactions)
+            dRdf = self.dRdf_diag(f, beta, gamma)
+            if dRdf.ndim == 2:
+                dRdf_vec = torch.diagonal(dRdf)
+            else:
+                dRdf_vec = dRdf.reshape(-1)
 
-            delta = torch.linalg.solve(J, Ff)
-            f = f - delta
+            if dRdf_vec.numel() != N:
+                raise ValueError(f"dRdf has wrong size: got {dRdf_vec.numel()}, expected {N}. "
+                                 f"Original shape was {tuple(dRdf.shape)}")
+
+            # Jacobian: J = K - alpha * diag(dR/df)
+            # (efficient diagonal update; avoids torch.diag)
+            J = K.clone()
+            idx = torch.arange(N, device=device)
+            J[idx, idx] -= alpha * dRdf_vec
+
+            dRdf_vec = (beta - gamma) - 2 * beta * f  # if SIS reaction
+
+            # If alpha*pos/lam_min is near 1 (or >1), it’s exactly why J loses SPD and Newton struggles.
+            # pos = torch.clamp(dRdf_vec, min=0).max().item()
+            # lam_min = torch.linalg.eigvalsh(K).min().item()
+            # print("max positive R'(f):", pos, "lambda_min(K):", lam_min, "ratio:", alpha * pos / lam_min)
+
+            try:
+                torch.linalg.cholesky(J)
+                spd = True
+            except RuntimeError:
+                spd = False
+                print(i, "J SPD?", spd)
+            # Newton direction
+            delta = torch.linalg.solve(J, G)
+
+            # ---- Damped Newton / backtracking line search ----
+            step = 1.0
+            f_new = f
+            for _ in range(ls_max):
+                candidate = f - step * delta
+                if clamp01:
+                    candidate = candidate.clamp(0.0, 1.0)
+
+                Rc = self.Rf(candidate, beta, gamma)
+                Gc = K @ candidate - alpha * Rc - w
+
+                if torch.linalg.norm(Gc) < (1.0 - 1e-4 * step) * Gnorm:
+                    f_new = candidate
+                    break
+
+                step *= 0.5
+
+            f = f_new
 
         return f
+    # def sample_stationary_with_nonlinearreaction(self, w, nu=2, tol=1e-6, max_iter=20, beta=2.5, gamma=1.0):
+    #     """
+    #         Sample from the stationary solution of a nonlinear reaction-diffusion system using Newton iteration:
+    #
+    #             (τ I + L)^ν f = w + alpha*R(f)
+    #             Newton on: G(f) = K f - tau R(f) - w = 0
+    #             with:      J(f) = K - tau R'(f)
+    #
+    #         where L is the graph Laplacian (already population-scaled), R(f) is a nonlinear reaction term,
+    #         and ν controls the smoothing behavior (fractional diffusion). This function solves for f iteratively
+    #         using Newton's method.
+    #
+    #         Parameters:
+    #         -----------
+    #         w : torch.Tensor
+    #             Input (e.g., noise sample), shape (N,)
+    #         nu : int, optional
+    #             Power of the smoothing operator (default: 2)
+    #         tol : float, optional
+    #             Tolerance for Newton iteration convergence (default: 1e-6)
+    #         max_iter : int, optional
+    #             Maximum number of Newton iterations (default: 20)
+    #
+    #         Returns:
+    #         --------
+    #         torch.Tensor
+    #             Approximate solution f of the nonlinear stationary PDE
+    #     """
+    #
+    #     I = torch.eye(self.num_nodes, dtype=self.L.dtype).to(self.dtype)
+    #
+    #     A = self.tau * I + self.L #L is already scaled by population
+    #     K = torch.linalg.matrix_power(A, nu)
+    #
+    #     # initial guess
+    #     f = torch.zeros_like(w, dtype=self.dtype)
+    #     alpha=1e-2
+    #     for i in range(max_iter):
+    #         Rf = self.Rf(f, beta, gamma)  # shape (N,)
+    #         # Residual: G(f) = K f - R(f) - w
+    #         G = K @ f - alpha*Rf - w
+    #
+    #         if torch.linalg.norm(G) < tol:
+    #             break
+    #
+    #         # R'(f): if your reaction is local, this is diagonal as a vector
+    #         # dRdf_vec should be shape (N,), representing derivative at each node
+    #         dRdf = self.dRdf_diag(f, beta, gamma)
+    #
+    #         # Make dRdf_vec be length N (diagonal entries)
+    #         if dRdf.ndim == 2:
+    #             # dRdf is N×N, take its diagonal
+    #             dRdf_vec = torch.diagonal(dRdf)
+    #         else:
+    #             # dRdf is already length N (or N×1)
+    #             dRdf_vec = dRdf.reshape(-1)
+    #
+    #         # Sanity check
+    #         if dRdf_vec.numel() != self.num_nodes:
+    #             raise ValueError(f"dRdf has wrong size: got {dRdf_vec.numel()}, expected {self.num_nodes}. "
+    #                              f"Original shape was {tuple(dRdf.shape)}")
+    #
+    #         J = K - self.tau * torch.diag(dRdf_vec)
+    #
+    #         # Newton step: J delta = G
+    #         delta = torch.linalg.solve(J, G)
+    #         f = f - delta
+    #
+    #     return f
 
 
     def Rf(self, f, beta, gamma):
@@ -423,66 +566,233 @@ class Matern_graph_pytorch():
         return dR_diag
 
 
-    def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+    def sample_heat_with_linearreaction(
+        self, v0, nu = 0, T = 5.0, dt = 0.01, w_noise = None,
+        beta = 10.0, gamma = 1.0,
+        clamp01 = True
+    ):
         """
-        Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
+        Linearized SIS reaction-diffusion dynamics on a graph:
 
-        Solves:
-            f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
+            f_dot = -L f + a f + b   (+ noise)
 
-        where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
-        The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
-
-        Parameters:
-        -----------
-        v0 : torch.Tensor
-            Initial condition, shape (N,)
-        nu : int, optional
-            Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
-        T : float, optional
-            Final simulation time (default: 5.0)
-        dt : float, optional
-            Time step size (default: 0.01)
-        w_noise : torch.Tensor or None, optional
-            Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
-
-        Returns:
-        --------
-        torch.Tensor
-            Time evolution of the state, shape (T/dt + 1, N)
+        with a = R'(f0), b = R(f0) - a f0 (constant term).
+        Implicit Euler:
+            (I + dt L - dt a I) f_{n+1} = f_n + dt b + sqrt(dt) xi_n
         """
-        beta = 10.
-        gamma = 1.0
-        #I = torch.eye( self.N, dtype=self.L.dtype )
-        #temp = -( self.tau * I + self.L )
-        #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+        device = self.L.device
+        dtype = self.dtype
+        N = self.num_nodes
 
-        K_nu_tensor = -self.L
+        L = self.L.to(device=device, dtype=dtype)
+        I = torch.eye(N, device=device, dtype=dtype)
 
+        # choose linearization point
+        f0 = (beta - gamma) / beta  # endemic equilibrium for SIS logistic
 
-        MAX_ITER = int(T / dt)
-        sol = [v0]
+        # SIS reaction and derivative
+        # R(f) = (beta-gamma) f - beta f^2
+        # R'(f) = (beta-gamma) - 2 beta f
+        if torch.is_tensor(f0):
+            f0_vec = f0.to(device=device, dtype=dtype).reshape(-1)
+            a_vec = (beta - gamma) - 2.0 * beta * f0_vec  # length N
+            b_vec = ((beta - gamma) * f0_vec - beta * f0_vec ** 2) - a_vec * f0_vec
+        else:
+            f0s = float(f0)
+            a = (beta - gamma) - 2.0 * beta * f0s
+            b = ((beta - gamma) * f0s - beta * f0s ** 2) - a * f0s
+            a_vec = a * torch.ones(N, device=device, dtype=dtype)
+            b_vec = b * torch.ones(N, device=device, dtype=dtype)
 
-        for i in range(MAX_ITER):
-            f_n = v0
+        dt_t = torch.tensor(dt, device=device, dtype=dtype)
+        steps = int(T / dt)
 
-            dt_tensor = torch.tensor(dt, dtype=self.dtype)
+        f = v0.to(device=device, dtype=dtype)
+        sol = [f]
 
-            A = torch.eye(self.num_nodes, dtype=self.dtype) + dt_tensor * K_nu_tensor
-            Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
-            rhs = f_n + dt_tensor * Rf_n
-
+        for n in range(steps):
+            # noise term
+            rhs = f + dt_t * b_vec
             if w_noise is not None:
-                noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
-                rhs += torch.sqrt(dt_tensor) * noise
+                xi = w_noise[n].to(device=device, dtype=dtype)
+                rhs = rhs + torch.sqrt(dt_t) * xi
 
-            # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
-            f_next = torch.linalg.solve(A, rhs)
+            # system matrix: I + dt L - dt a I
+            A = I + dt_t * L - dt_t * torch.diag(a_vec)
 
-            v0 = f_next
-            sol.append(f_next)
+            f = torch.linalg.solve(A, rhs)
+
+            if clamp01:
+                f = f.clamp(0.0, 1.0)
+
+            sol.append(f)
 
         return torch.stack(sol)
+
+    # def sample_heat_with_nonlinreaction(self, v0, nu=0, T=5.0, dt=0.01, w_noise=None):
+    #     """
+    #     Simulate the time evolution of a nonlinear reaction-diffusion system using an implicit Euler scheme.
+    #
+    #     Solves:
+    #         f_{n+1} = (I + dt * L)^(-1) [f_n + dt * R(f_n) + sqrt(dt) * ξ_n]
+    #
+    #     where L is the graph Laplacian, R(f) is a nonlinear reaction term, and ξ_n is noise.
+    #     The Laplacian is assumed to already be scaled appropriately by population or spatial weights.
+    #
+    #     Parameters:
+    #     -----------
+    #     v0 : torch.Tensor
+    #         Initial condition, shape (N,)
+    #     nu : int, optional
+    #         Smoothness parameter for spatial noise sampling (default: 0, i.e., white noise)
+    #     T : float, optional
+    #         Final simulation time (default: 5.0)
+    #     dt : float, optional
+    #         Time step size (default: 0.01)
+    #     w_noise : torch.Tensor or None, optional
+    #         Optional precomputed noise tensor of shape (T/dt, N); if None, noise is not added.
+    #
+    #     Returns:
+    #     --------
+    #     torch.Tensor
+    #         Time evolution of the state, shape (T/dt + 1, N)
+    #     """
+    #     beta = 10.
+    #     gamma = 1.0
+    #     #I = torch.eye( self.N, dtype=self.L.dtype )
+    #     #temp = -( self.tau * I + self.L )
+    #     #K_nu_tensor = torch.linalg.matrix_power(temp, nu)
+    #
+    #     K_nu_tensor = -self.L
+    #
+    #
+    #     MAX_ITER = int(T / dt)
+    #     sol = [v0]
+    #
+    #     for i in range(MAX_ITER):
+    #         f_n = v0
+    #
+    #         dt_tensor = torch.tensor(dt, dtype=self.dtype)
+    #
+    #         A = torch.eye(self.num_nodes, dtype=self.dtype) + dt_tensor * K_nu_tensor
+    #         Rf_n = self.Rf(f_n, beta, gamma).to(self.dtype)
+    #         rhs = f_n + dt_tensor * Rf_n
+    #
+    #         if w_noise is not None:
+    #             noise = self.sample_stationary(w_noise[i], nu=nu).to(self.dtype)
+    #             rhs += torch.sqrt(dt_tensor) * noise
+    #
+    #         # Now A and rhs are both of dtype self.dtype (e.g., torch.float64)
+    #         f_next = torch.linalg.solve(A, rhs)
+    #
+    #         v0 = f_next
+    #         sol.append(f_next)
+    #
+    #     return torch.stack(sol)
+
+
+    def sample_heat_with_nonlinreaction(
+        self, v0, nu=0, T=5.0, dt=0.01, w_noise=None,
+        beta=10.0, gamma=1.0,
+        newton_tol=1e-8, newton_max_iter=20,
+        ls_max=10, clamp01=True
+        ):
+        """
+        Fully implicit Euler for diffusion + reaction with damped Newton:
+
+            (I + dt*L) f_{n+1} - dt*R(f_{n+1}) = f_n + sqrt(dt)*xi_n
+
+        Newton on: G(f) = (I + dt*L)f - dt*R(f) - b = 0
+        J(f) = (I + dt*L) - dt*R'(f)
+        """
+        device = self.L.device
+        dtype = self.dtype
+        N = self.num_nodes
+
+        L = self.L.to(device=device, dtype=dtype)
+
+        # If your diffusion sign convention is different, adjust here.
+        # For PDE: c_t = div(...) + R(c), the discrete form is usually c_t = -L c + R(c)
+        # In that case you'd use (I + dt*Laplacian_operator) accordingly.
+        # I'll follow your current "K_nu_tensor = -L" approach:
+        K = (-L)
+
+        I = torch.eye(N, device=device, dtype=dtype)
+        dt_t = torch.tensor(dt, device=device, dtype=dtype)
+
+        MAX_STEPS = int(T / dt)
+        sol = [v0.to(device=device, dtype=dtype)]
+
+        for n in range(MAX_STEPS):
+            f_n = sol[-1]
+
+            # Build b = f_n + sqrt(dt)*noise
+            b = f_n.clone()
+
+            if w_noise is not None:
+                noise = self.sample_stationary(w_noise[n], nu=nu).to(device=device, dtype=dtype)
+                b = b + torch.sqrt(dt_t) * noise
+
+            # Nonlinear solve for f_{n+1}
+            # Start guess: previous state (good for small dt)
+            f = f_n.clone()
+
+            # Constant part of Jacobian: A = I + dt*K
+            A = I + dt_t * K
+
+            for it in range(newton_max_iter):
+                Rf = self.Rf(f, beta, gamma).to(device=device, dtype=dtype)
+
+                # Residual: G(f) = A f - dt*R(f) - b
+                G = A @ f - dt_t * Rf - b
+                Gnorm = torch.linalg.norm(G)
+
+                if Gnorm < newton_tol:
+                    break
+
+                dRdf = self.dRdf_diag(f, beta, gamma)
+                if dRdf.ndim == 2:
+                    dRdf_vec = torch.diagonal(dRdf)
+                else:
+                    dRdf_vec = dRdf.reshape(-1)
+
+                if dRdf_vec.numel() != N:
+                    raise ValueError(f"dRdf has wrong size: got {dRdf_vec.numel()}, expected {N}. "
+                                     f"Original shape was {tuple(dRdf.shape)}")
+
+                # Jacobian: J = A - dt*diag(dR/df)
+                J = A.clone()
+                idx = torch.arange(N, device=device)
+                J[idx, idx] -= dt_t * dRdf_vec
+
+                delta = torch.linalg.solve(J, G)
+
+                # Damped Newton / backtracking
+                step = 1.0
+                accepted = False
+                for _ in range(ls_max):
+                    cand = f - step * delta
+                    if clamp01:
+                        cand = cand.clamp(0.0, 1.0)
+
+                    Rc = self.Rf(cand, beta, gamma).to(device=device, dtype=dtype)
+                    Gc = A @ cand - dt_t * Rc - b
+
+                    if torch.linalg.norm(Gc) < (1.0 - 1e-4 * step) * Gnorm:
+                        f = cand
+                        accepted = True
+                        break
+
+                    step *= 0.5
+
+                if not accepted:
+                    # If line search fails, take a tiny step to avoid stalling
+                    f = (f - 1e-3 * delta).clamp(0.0, 1.0) if clamp01 else (f - 1e-3 * delta)
+
+            sol.append(f)
+
+        return torch.stack(sol)
+
 
 class KL_expansion(Matern_graph):
     def __init__(self, graph, N=128, normalize=False):
