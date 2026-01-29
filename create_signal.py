@@ -306,7 +306,7 @@ def create_signal_heat_linearreaction_pytorch():
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
-    y_true = G.sample_heat_with_linearreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
+    y_true = G.sample_heat_with_linearreaction_implicit(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
 
     # creating a normalized noise vector
     noise_vec = torch.randn(y_true.shape)
@@ -414,12 +414,12 @@ def create_signal_heat_nonlinearreaction_pytorch():
     plt.show()
 
 if __name__ == '__main__':
-    #create_signal_heat_pytorch()
-    create_signal_heat_linearreaction_pytorch()
-    #create_signal_heat_nonlinearreaction_pytorch()
     #create_signal_stationary_pytorch()
     #create_signal_stationary_linearreaction_pytorch()
     #create_signal_stationary_nonlinearreaction_pytorch()
+    #create_signal_heat_pytorch()
+    create_signal_heat_linearreaction_pytorch()
+    #create_signal_heat_nonlinearreaction_pytorch()
 
     #test_stationary()
     #test_heat()
