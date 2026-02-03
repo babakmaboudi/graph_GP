@@ -821,7 +821,7 @@ if __name__ == '__main__':
     #MAP_stationary_linearreaction()
     #MAP_stationary_nonlinearreaction()
     #MAP_heat()
-    MAP_heat_linearreaction()
-    #MAP_heat_nonlinearreaction()
+    #MAP_heat_linearreaction()
+    MAP_heat_nonlinearreaction()
 
 
