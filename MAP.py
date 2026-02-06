@@ -792,7 +792,6 @@ def MAP_heat():
     w_noise_MAP = w_noise
 
     y_MAP = problem.forward(x_MAP, w_noise_MAP)
-    print(np.shape(y_obs),np.shape(y_MAP))
     stat_data = {'x_MAP': x_MAP, 'w_noise_MAP': w_noise_MAP}
 
     dir = './stat/heat/'
