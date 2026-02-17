@@ -7,6 +7,8 @@ from plot_tools import Graph_Plotter
 import torch
 import os
 
+import networkx as nx
+
 def create_signal_heat_pytorch():
     # loading the graph of the US states
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
@@ -413,14 +415,119 @@ def create_signal_heat_nonlinearreaction_pytorch():
 
     plt.show()
 
+def make_1d_grid_graph(N: int, weighted: bool = True, store_pos_as: str = "pos"):
+    """
+    1D discretization of [0,1] with N nodes.
+    - Nodes are labeled 0..N-1 (works well with your adjacency_matrix code).
+    - Node attribute `pos` stores the coordinate (x, 0.0) for easy plotting.
+    - Edge weights are 1/h^2 if weighted=True (finite-difference scaling).
+    """
+    if N < 2:
+        raise ValueError("N must be >= 2")
+
+    G = nx.path_graph(N)  # edges: (0,1), (1,2), ..., (N-2,N-1)
+
+    xs = np.linspace(0.0, 1.0, N)
+    h = xs[1] - xs[0]
+
+    # Store node locations
+    for i, x in enumerate(xs):
+        # choose either x (scalar) or (x, 0) tuple; tuple is nicer for plotting
+        G.nodes[i][store_pos_as] = (float(x), 0.0)
+
+    # Add weights
+    if weighted:
+        w = 1.0 / (h * h)
+        for u, v in G.edges():
+            G.edges[u, v]["weight"] = float(w)
+    else:
+        for u, v in G.edges():
+            G.edges[u, v]["weight"] = 1.0
+
+    return G
+
+def create_signal_graphical_heat():
+    N = 32
+    graph = make_1d_grid_graph(N, weighted = False)
+
+    
+    G = Matern_graph_pytorch(graph)
+
+    # data type used for pytorch
+    dtype = torch.float64
+    # defining initial nodal values
+    #v0 = torch.randn(G.num_nodes, dtype=dtype)
+    x = torch.linspace(0,1,G.num_nodes)
+    v0 = torch.exp(-0.5*((x-0.5)/(0.5/8))**2).to(dtype)
+    #v0[25] = 1.
+
+    # parameters used in the prior
+    nu_prior = 1 # regularity
+    dt_prior = 0.01 # time-step size
+    T_prior = 1. # maximum time for simulation
+    MAX_ITER_prior = int(T_prior / dt_prior) # number of iterations to hit maximum time
+
+    # The non-linear mapping that makes the prior positive
+    prior_map_scale = .1 # output variance parameter
+    prior_map_mean = .0
+    prior_map_text = 'lambda x:  prior_map_mean + prior_map_scale*prior_map_parameter*torch.exp(x)' # the copy of the mapping for future reference
+    prior_map = lambda x:  prior_map_mean + prior_map_scale*torch.exp(x) # the actual mapping
+
+    # create a signal
+    #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(1)
+    x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
+    #x_true = torch.ones(G.num_edges)
+    w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
+    G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=False) # updating the graph weights accroding to the unknown
+    y_true = G.sample_heat(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
+
+    # creating a normalized noise vector
+    noise_vec = torch.randn(y_true.shape)
+    noise_vec = noise_vec/torch.linalg.norm(noise_vec) # normalizing accroding to the l2 norm of the noise
+
+    # visualizeing the noisy measurement with 1% noise
+    #sigma = 0.01*torch.linalg.norm(y_true)/torch.sqrt(torch.tensor(y_true.shape[0]*y_true.shape[1]) )
+    sigma = 0.01*torch.linalg.norm( y_true, dim=1 )/torch.sqrt(torch.tensor(y_true.shape[1]) )
+    sigma = sigma.view(-1,1)
+    print(y_true)
+    y_obs = y_true + sigma*noise_vec
+
+    # saving the signal file
+    obs_data = {'porb_type': 'heat', 'N': N, 'x_true': x_true, 'y_true': y_true, 'noise_vec': noise_vec, 'v0':v0, 'w_noise_true': w_noise_true, 'nu_prior': nu_prior, 'dt_prior': dt_prior, 'T_prior': T_prior, 'prior_map_mean': prior_map_mean, 'prior_map_scale': prior_map_scale, 'prior_map_text': prior_map_text, 'MAX_ITER_prior': MAX_ITER_prior, 'num_nodes': N}
+
+    dir = './obs/graphical_heat/heat'
+    if not os.path.exists(dir):
+            os.makedirs(dir)
+
+    with open(os.path.join(dir, 'obs.pickle'), 'wb') as handle:
+        pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # plotting the true parameter
+    f, axes = plt.subplots(1,2, figsize=[12,6])
+
+    pos = nx.get_node_attributes(graph, "pos")
+
+    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=pos) # initiating the graph plotter
+    plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
+    anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_true.shape[0], interval=100)
+
+    # plotting the true graph weights
+    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=pos)
+    plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
+
+    plt.show()
+
+
 if __name__ == '__main__':
     #create_signal_stationary_pytorch()
     #create_signal_stationary_linearreaction_pytorch()
     #create_signal_stationary_nonlinearreaction_pytorch()
     #create_signal_heat_pytorch()
-    create_signal_heat_linearreaction_pytorch()
+    #create_signal_heat_linearreaction_pytorch()
     #create_signal_heat_nonlinearreaction_pytorch()
-
+    create_signal_graphical_heat()
+    
     #test_stationary()
     #test_heat()
 

@@ -257,10 +257,11 @@ class Matern_graph_pytorch():
 
         if make_pd:
             self.L += epsilon * torch.eye(num_nodes)
-        self.L.to(torch.float64)
+        self.L = self.L.to(torch.float64)
 
     def sample_stationary(self, w, nu=2):
-        I = torch.eye( 51, dtype=self.L.dtype )
+        #I = torch.eye( 51, dtype=self.L.dtype )
+        I = torch.eye( self.num_nodes, dtype=self.L.dtype )
         temp = 1 * ( 1 * I + self.L ).to(self.L.dtype)
         #K_nu_tensor = temp.to(torch.float64)
         K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
@@ -539,7 +540,8 @@ class Matern_graph_pytorch():
 
 
     def sample_heat(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None):
-        I = torch.eye( 51, dtype=self.L.dtype )
+        #I = torch.eye( 51, dtype=self.L.dtype )
+        I = torch.eye( self.num_nodes, dtype=self.L.dtype )
         temp = 1. * ( 1. * I + self.L )
         K_nu_tensor = torch.linalg.matrix_power(temp, nu ).to(torch.float64)
 
