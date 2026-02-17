@@ -1348,7 +1348,7 @@ def MAP_heat_nonlinearreaction():
 
 if __name__ == '__main__':
     #MAP_stationary()
-    #MAP_stationary_linearreaction()
+    MAP_stationary_linearreaction()
     #MAP_stationary_nonlinearreaction()
     #MAP_heat()
     #MAP_heat_linearreaction()
@@ -1357,4 +1357,4 @@ if __name__ == '__main__':
     #MAP_stationary_linearreaction_real_covid()
     #MAP_stationary_nonlinearreaction_real_covid()
     #MAP_heat_linearreaction_real_covid()
-    MAP_heat_nonlinearreaction_real_covid()
+    #MAP_heat_nonlinearreaction_real_covid()

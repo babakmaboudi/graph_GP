@@ -420,8 +420,8 @@ def create_signal_heat_nonlinearreaction_pytorch():
 
 if __name__ == '__main__':
     #create_signal_stationary_pytorch()
-    #create_signal_stationary_linearreaction_pytorch()
-    create_signal_stationary_nonlinearreaction_pytorch()
+    create_signal_stationary_linearreaction_pytorch()
+    #create_signal_stationary_nonlinearreaction_pytorch()
     #create_signal_heat_pytorch()
     #create_signal_heat_linearreaction_pytorch()
     #create_signal_heat_nonlinearreaction_pytorch()
