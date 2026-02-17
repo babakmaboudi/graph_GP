@@ -52,6 +52,43 @@ class forward_operator_stationary():
         return self.G.sample_stationary(self.v0, nu=self.nu)
 
 
+class forward_operator_stationary_linearreaction():
+    def __init__(self, v0, G, nu, prior_map):
+        self.v0 = v0
+        self.G = G
+        self.prior_map = prior_map
+        self.nu = nu
+
+    def forward(self, p):
+        self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
+        return self.G.sample_stationary_with_linearreaction(self.v0, nu=self.nu)
+
+
+class forward_operator_stationary_nonlinearreaction():
+    def __init__(self, v0, G, nu, prior_map):
+        self.v0 = v0
+        self.G = G
+        self.prior_map = prior_map
+        self.nu = nu
+
+    def forward(self, p):
+        self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
+        return self.G.sample_stationary_with_nonlinearreaction(self.v0, nu=self.nu)
+
+class forward_operator_heat_linearreaction():
+    def __init__(self, v0, G, prior_map, nu, dt, T):
+        self.v0 = v0
+        self.G = G
+        self.prior_map = prior_map
+        self.nu = nu
+        self.dt = dt
+        self.T = T
+
+
+    def forward(self, p, w_noise):
+        self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
+        return self.G.sample_heat_with_linearreaction_implicit(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise )
+
 class forward_operator_heat():
     """
     This class creates a forward operator for the Graph non-stationary (heat) Gaussian process.
@@ -188,6 +225,160 @@ def sample_posterior_stationary():
 
     plt.show()
 
+def sample_posterior_stationary_linearreaction():
+    with open('obs/stationary_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+    problem = forward_operator_stationary_linearreaction(v0, G, nu_prior, prior_map) # creating a forward operator
+
+    neg_log_posterior = lambda x: 0.5*torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + 0.5*torch.sum( x**2 )
+
+    def pyro_NLP(x):
+        return neg_log_posterior(x['x'])
+
+    nuts_kernel = NUTS(potential_fn=pyro_NLP)
+
+    MCMC_params = {
+        'kernel': nuts_kernel,
+        'num_chains': 1,
+        'initial_params': {'x': torch.zeros(x_true.shape, dtype=torch.float64) },  
+        'num_samples': 2000,
+        'warmup_steps': 1000
+    }
+
+    mcmc = MCMC(**MCMC_params)
+    mcmc.run()
+
+    samples = mcmc.get_samples()
+
+    stat_data = {'samples': samples}
+
+    with open('./stat/stationary_linearreaction/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def sample_posterior_stationary_nonlinearreaction():
+    with open('obs/stationary_nonlinearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+    problem = forward_operator_stationary_nonlinearreaction(v0, G, nu_prior, prior_map) # creating a forward operator
+
+    neg_log_posterior = lambda x: 0.5*torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + 0.5*torch.sum( x**2 )
+
+    def pyro_NLP(x):
+        return neg_log_posterior(x['x'])
+
+    nuts_kernel = NUTS(potential_fn=pyro_NLP)
+
+    MCMC_params = {
+        'kernel': nuts_kernel,
+        'num_chains': 1,
+        'initial_params': {'x': torch.zeros(x_true.shape, dtype=torch.float64) },  
+        'num_samples': 2000,
+        'warmup_steps': 1000
+    }
+
+    mcmc = MCMC(**MCMC_params)
+    mcmc.run()
+
+    samples = mcmc.get_samples()
+
+    stat_data = {'samples': samples}
+
+    with open('./stat/stationary_nonlinearreaction/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def sample_posterior_heat_linearreaction():
+    with open('obs/heat_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    # x_smooth = obs_data['x_smooth']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+    dt_prior = obs_data['dt_prior']
+    T_prior = obs_data['T_prior']
+    MAX_ITER_prior = obs_data['MAX_ITER_prior']
+    w_noise_true = obs_data['w_noise_true']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale * torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01 * torch.linalg.norm(y_true)
+    sigma2 = sigma * sigma
+    y_obs = y_true + sigma * noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(
+        open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
+    problem = forward_operator_heat_linearreaction(v0, G, prior_map, nu_prior, dt_prior, T_prior)  # creating a forward operator
+
+    # defining the log-posterior with a standard normal Gaussian prior
+    neg_log_posterior = lambda x, w: torch.sum( (problem.forward(x, w) - y_obs)**2/sigma2 ) + torch.sum( (x)**2 ) + torch.sum( w**2 )
+
+    def pyro_NLP(x):
+        return neg_log_posterior(x['x'], x['w'])
+
+    nuts_kernel = NUTS(potential_fn=pyro_NLP)
+
+    MCMC_params = {
+        'kernel': nuts_kernel,
+        'num_chains': 1,
+        'initial_params': {'x': torch.zeros(x_true.shape, dtype=torch.float64), 'w': torch.zeros(w_noise_true.shape, dtype=torch.float64) },  
+        'num_samples': 2000,
+        'warmup_steps': 1000
+    }
+
+    mcmc = MCMC(**MCMC_params)
+    mcmc.run()
+
+    samples = mcmc.get_samples()
+
+    stat_data = {'samples': samples}
+
+    with open('./stat/heat_linearreaction/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 def sample_posterior_heat():
     with open('obs/heat/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
@@ -284,4 +475,7 @@ def sample_posterior_heat():
     plt.show()
 if __name__ == '__main__':
     #sample_posterior_stationary()
-    sample_posterior_heat()
+    #sample_posterior_stationary_linearreaction()
+    #sample_posterior_stationary_nonlinearreaction()
+    sample_posterior_heat_linearreaction()
+    #sample_posterior_heat()

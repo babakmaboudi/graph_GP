@@ -3,9 +3,10 @@ import pickle
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from prior import Matern_graph_pytorch
-from plot_tools import Graph_Plotter
+from plot_tools import Graph_Plotter, Graph_Plotter_With_US_Map
 import torch
 import os
+import cartopy.io.shapereader as shpreader
 
 def create_signal_heat_pytorch():
     # loading the graph of the US states
@@ -62,7 +63,7 @@ def create_signal_heat_pytorch():
 
     # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    with open('./stat_positions_exact.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
     plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
@@ -88,7 +89,7 @@ def create_signal_stationary_pytorch():
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     #v0 = 10*torch.ones(G.N, dtype=dtype)
     #v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 10.
+    v0[25] = 2.
 
     # parameters used in the prior
     nu_prior = 1 # regularity
@@ -101,6 +102,7 @@ def create_signal_stationary_pytorch():
 
     # create a signal
     #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(2)
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
     y_true = G.sample_stationary(v0, nu=nu_prior ) # creating a noise free signal
@@ -128,14 +130,19 @@ def create_signal_stationary_pytorch():
 
     # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    #plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[0],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
 
     # plotting the true graph weights
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[1],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
@@ -153,7 +160,7 @@ def create_signal_stationary_linearreaction_pytorch():
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     #v0 = 10*torch.ones(G.N, dtype=dtype)
     #v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 10.
+    v0[25] = 2.
 
     # parameters used in the prior
     nu_prior = 1 # regularity
@@ -166,6 +173,7 @@ def create_signal_stationary_linearreaction_pytorch():
 
     # create a signal
     #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(2)
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
     y_true = G.sample_stationary_with_linearreaction(v0, nu=nu_prior ) # creating a noise free signal
@@ -191,16 +199,20 @@ def create_signal_stationary_linearreaction_pytorch():
     with open(os.path.join(dir, 'obs.pickle'), 'wb') as handle:
         pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    #plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[0],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
 
     # plotting the true graph weights
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[1],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
@@ -219,7 +231,7 @@ def create_signal_stationary_nonlinearreaction_pytorch():
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     # v0 = 10*torch.ones(G.N, dtype=dtype)
     # v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 10.
+    v0[25] = 2.
 
     # parameters used in the prior
     nu_prior = 1  # regularity
@@ -232,6 +244,7 @@ def create_signal_stationary_nonlinearreaction_pytorch():
 
     # create a signal
     # x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(2)
     x_true = torch.normal(torch.zeros(G.num_edges), torch.ones(G.num_edges)).to(dtype)
     G.compute_laplacian_from_tensor_autograd(prior_map(x_true),
                                              normalized=True)  # updating the graph weights accroding to the unknown
@@ -260,17 +273,20 @@ def create_signal_stationary_nonlinearreaction_pytorch():
     with open(os.path.join(dir, 'obs.pickle'), 'wb') as handle:
         pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # plotting the true parameter
-    f, axes = plt.subplots(1, 2, figsize=[12, 6])
-    with open('./stat_positions.pickle', 'rb') as handle:
+    f, axes = plt.subplots(1,2, figsize=[12,6])
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0],
-                            pos=state_positions)  # initiating the graph plotter
-    plotter.plot_stationary(y_true.detach().numpy())  # plotting the initial condition
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    #plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[0],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
+    plotter.plot_stationary(y_true.detach().numpy() ) # plotting the initial condition
 
     # plotting the true graph weights
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[1],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
@@ -286,6 +302,7 @@ def create_signal_heat_linearreaction_pytorch():
     # data type used for pytorch
     dtype = torch.float64
     # defining initial nodal values
+    torch.manual_seed(0)
     v0 = torch.randn(G.num_nodes, dtype=dtype)
     #v0[25] = 1.
 
@@ -303,6 +320,7 @@ def create_signal_heat_linearreaction_pytorch():
 
     # create a signal
     #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(2)
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
@@ -329,17 +347,21 @@ def create_signal_heat_linearreaction_pytorch():
     with open(os.path.join(dir, 'obs.pickle'), 'wb') as handle:
         pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    #plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[0],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
     anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_true.shape[0], interval=100)
 
     # plotting the true graph weights
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[1],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
@@ -355,6 +377,7 @@ def create_signal_heat_nonlinearreaction_pytorch():
     # data type used for pytorch
     dtype = torch.float64
     # defining initial nodal values
+    torch.manual_seed(0)
     v0 = torch.randn(G.num_nodes, dtype=dtype)
     #v0[25] = 1.
 
@@ -372,6 +395,7 @@ def create_signal_heat_nonlinearreaction_pytorch():
 
     # create a signal
     #x_true = torch.randn(G.num_edges).to(dtype) # the unknown for the inverse problem
+    torch.manual_seed(2)
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
@@ -398,17 +422,21 @@ def create_signal_heat_nonlinearreaction_pytorch():
     with open(os.path.join(dir, 'obs.pickle'), 'wb') as handle:
         pickle.dump(obs_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    # plotting the true parameter
     f, axes = plt.subplots(1,2, figsize=[12,6])
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
         state_positions = pickle.load(handle)
 
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    #plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[0],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_stationary(y_true[-1].detach().numpy() ) # plotting the initial condition
     anim = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_true.shape[0], interval=100)
 
     # plotting the true graph weights
-    plotter = Graph_Plotter(graph, y_true.detach().numpy(), axes[0], pos=state_positions)
+    plotter = Graph_Plotter_With_US_Map(graph=graph,out=y_true.detach().numpy(),ax=axes[1],pos=state_positions,us_states_path=us_states_path,pos_is_lonlat=True,plot_crs="EPSG:5070")
+    plotter.focus_conus(pad=150_000)
     plotter.plot_graph_wieghts(prior_map(x_true).detach().numpy(), axes[1])
 
     plt.show()
@@ -418,8 +446,8 @@ if __name__ == '__main__':
     #create_signal_stationary_linearreaction_pytorch()
     #create_signal_stationary_nonlinearreaction_pytorch()
     #create_signal_heat_pytorch()
-    create_signal_heat_linearreaction_pytorch()
-    #create_signal_heat_nonlinearreaction_pytorch()
+    #create_signal_heat_linearreaction_pytorch()
+    create_signal_heat_nonlinearreaction_pytorch()
 
     #test_stationary()
     #test_heat()
