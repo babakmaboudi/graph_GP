@@ -268,7 +268,7 @@ class Matern_graph_pytorch():
         return torch.linalg.solve( K_nu_tensor, w )
 
 
-    def sample_stationary_with_linearreaction(self, w, nu=2, beta=2.5, gamma=1.0, alpha=1):
+    def sample_stationary_with_linearreaction(self, w, nu=2, beta=2.5, gamma=1.0, alpha=1, clamp01=False):
         """
         Sample from the stationary solution of a linear reaction-diffusion system:
 
@@ -297,13 +297,17 @@ class Matern_graph_pytorch():
                 Decay or death rate coefficient
         alpha: float
                weight of reaction term
+        clamp01 : bool, optional
+                If True, clamp the solution f to the interval [0, 1]
+                    after each Newton update. Useful when f represents
+                    a population ratio or probability.
+                    Default is False.
 
         Returns:
         --------
         torch.Tensor
             Solution f of the modified system incorporating linear reaction
     """
-
         device = self.L.device
         dtype = self.dtype
         N = self.num_nodes
@@ -332,6 +336,8 @@ class Matern_graph_pytorch():
         # (K - alpha R'(f0) I) f = w + alpha c_const * 1
         rhs = w + alpha*c_const*torch.ones(N, device=device, dtype=dtype) #constant part of R
         f = torch.linalg.solve(M, rhs)
+        if clamp01:
+            f = f.clamp(0.0, 1.0)
         return f
 
 
