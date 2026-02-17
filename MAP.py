@@ -177,7 +177,7 @@ class forward_operator_heat_linearreaction():
         """
 
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
-        return self.G.sample_heat_with_linearreaction_implicit(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise )
+        return self.G.sample_heat_with_linearreaction_implicit(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise)
 
 
 class forward_operator_heat_nonlinearreaction():
@@ -1321,7 +1321,7 @@ def MAP_heat_nonlinearreaction():
 if __name__ == '__main__':
     #MAP_stationary()
     #MAP_stationary_linearreaction()
-    #MAP_stationary_nonlinearreaction()
+    MAP_stationary_nonlinearreaction()
     #MAP_heat()
     #MAP_heat_linearreaction()
     #MAP_heat_nonlinearreaction()
@@ -1329,4 +1329,4 @@ if __name__ == '__main__':
     #MAP_stationary_linearreaction_real_covid()
     #MAP_stationary_nonlinearreaction_real_covid()
     #MAP_heat_linearreaction_real_covid()
-    MAP_heat_nonlinearreaction_real_covid()
+    #MAP_heat_nonlinearreaction_real_covid()

@@ -272,9 +272,15 @@ class Matern_graph_pytorch():
         """
         Sample from the stationary solution of a linear reaction-diffusion system:
 
-            Solves: ((tau I + L)^nu - alpha R_lin) f = w
-            where R_lin comes from linearizing R(f) = (beta-gamma)c - beta f^2 around f0:
-            R_lin(f) = (-2*beta*f0) * f  ->  R_lin operator = (-2*beta*f0) * I
+            Linearization: R(f) ≈ c_const + R'(f0) f
+              R'(f0) = (beta-gamma) - 2*beta*f0
+              c_const = beta*f0^2
+            with f0 chosen as the endemic equilibrium (beta>gamma):
+              f0 = (beta-gamma)/beta
+
+            We solve: (K + alpha*R'(f0) I) f = w - alpha*c_const*1,
+            where K = (tau I + L)^nu.
+
 
         where L is the graph Laplacian (possibly scaled), tau is a diffusion scaling parameter,
         R is a linear reaction operator, and ν controls the smoothness (via inverse powers).
@@ -306,23 +312,25 @@ class Matern_graph_pytorch():
         w = w.to(device=device, dtype=dtype)
 
         # linearization point (you chose endemic equilibrium for SIS logistic)
-        f0 = (beta - gamma) / beta
+        # endemic equilibrium (beta > gamma)
+        f0 = float((beta - gamma) / beta)
 
         # Linearized SIS slope a = R'(f0)
         # For SIS: R(f) = (beta-gamma)f - beta f^2  -> R'(f) = (beta-gamma) - 2 beta f
-        # R_lin operator: R_lin(f) = (-2*beta*f0) * f  ->  R_lin = r * I
-        a = - 2.0 * beta * float(f0)  # scalar
-        R_lin = a * I
+        # Linearized: R(f) = c_const + R'(f0) * f, R'(f0) = (beta -gamma) -2*beta*f0
+        Rprime_f0 = (beta - gamma) - 2.0 * beta * f0
+        c_const = beta * f0 * f0
 
-        # K = (tau I + L)^nu
-        A = self.tau * I + self.L.to(device=device, dtype=dtype)
+        # K = (tau I + L)^nu, (swap 1.0 for self.tau if needed)
+        A = 1 * I + self.L.to(device=device, dtype=dtype)
         K = torch.linalg.matrix_power(A, nu)
 
         # M = K - alpha R_lin
-        M = K - alpha * R_lin
+        M = K - alpha * Rprime_f0 * torch.eye(N, device=device, dtype=dtype)
 
         # Solve M f = w
-        rhs = w + alpha*beta*f0*f0 #constant part of R
+        # (K - alpha R'(f0) I) f = w + alpha c_const * 1
+        rhs = w + alpha*c_const*torch.ones(N, device=device, dtype=dtype) #constant part of R
         f = torch.linalg.solve(M, rhs)
         return f
 
@@ -336,13 +344,13 @@ class Matern_graph_pytorch():
             ls_max=10  # line-search steps
     ):
         """
-        Solve: ( (tau I + L)^nu ) f = w + alpha * R(f)
+        Solve: ( (tau I + L)^nu ) f = w - alpha * R(f)
 
         Newton on: G(f) = K f - alpha R(f) - w = 0
-        with:      J(f) = K - alpha R'(f)
+        with:      J(f) = K + alpha R'(f)
         Newton iteration:
             J(f_k) delta_k = G(f_k),
-            f_{k+1} = f_k - delta_k,
+            f_{k+1} = f_k + delta_k,
         with optional damped Newton (backtracking line search).
         L is the graph Laplacian (possibly scaled),
         tau is a diffusion scaling parameter controlling correlation length /smoothing,
@@ -405,7 +413,8 @@ class Matern_graph_pytorch():
         w = w.to(device=device, dtype=dtype)
 
         # Build K = (A)^nu with A = tau I + L
-        A = self.tau  * I + self.L.to(device=device, dtype=dtype)
+        # (swap 1.0 for self.tau if needed)
+        A = 1  * I + self.L.to(device=device, dtype=dtype)
         K = torch.linalg.matrix_power(A, nu)
 
         # initial guess
@@ -700,7 +709,7 @@ class Matern_graph_pytorch():
 
 
     def sample_heat_with_linearreaction_implicit(self, v0, nu=2, T=5.0, dt=0.01, w_noise=None,
-                                                 alpha=1.0, beta=2.5, gamma=1.0, f0=None, clamp01=True):
+                                                 alpha=1.0, beta=2.5, gamma=1.0, f0=None, clamp01=False):
         """
         Simulate the time evolution of a linearized (affine) reaction–diffusion system on a graph
         using an implicit Euler scheme.
@@ -802,8 +811,7 @@ class Matern_graph_pytorch():
         # c_const = R(f0) - R'(f0)*f0 = beta f0^2
         c_const = beta * f0 * f0
 
-        # K_eff = K - alpha R'(f0) I
-        K_eff = K - alpha * Rprime_f0 * I
+        K_eff = (K - alpha * Rprime_f0 * I)
 
         dt_t = torch.tensor(dt, device=device, dtype=dtype)
         sqrt_dt = torch.sqrt(dt_t)
@@ -841,7 +849,7 @@ class Matern_graph_pytorch():
             beta=2.5, gamma=1.0,
             alpha=1e-2,
             newton_tol=1e-6, newton_max_iter=20,
-            clamp01=True,
+            clamp01=False,
             use_linesearch=True, ls_max=10
     ):
         """
@@ -920,8 +928,8 @@ class Matern_graph_pytorch():
 
         I = torch.eye(N, device=device, dtype=dtype)
 
-        # Build K = (tau I + L)^nu once (time-independent)
-        A = self.tau * I + self.L.to(device=device, dtype=dtype)
+        # Build K = (tau I + L)^nu once (time-independent)(swap 1.0 for self.tau if needed)
+        A = 1.0 * I + self.L.to(device=device, dtype=dtype)
         K = torch.linalg.matrix_power(A, nu)
 
         steps = int(T / dt)
