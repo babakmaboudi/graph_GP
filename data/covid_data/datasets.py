@@ -1,10 +1,15 @@
+# Copyright 2023 Alexander Nikitin
+# Licensed under the Apache License, Version 2.0
+# from https://github.com/AlexanderVNikitin/covid19-on-graphs/tree/main
+
+
 import os
 import pandas as pd
 import networkx as nx
 
 ####from https://github.com/AlexanderVNikitin/covid19-on-graphs/tree/main
 
-PATH_TO_RAW_DATA = os.environ.get("COVID_RAW_DATA_PATH", "./data/us-states.csv")
+PATH_TO_RAW_DATA = os.environ.get("COVID_RAW_DATA_PATH", "./us-states.csv")
 
 
 STATE_ADJACENCIES = {

@@ -153,7 +153,7 @@ def create_signal_stationary_linearreaction_pytorch():
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     #v0 = 10*torch.ones(G.N, dtype=dtype)
     #v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 10.
+    v0[25] = 0.5
 
     # parameters used in the prior
     nu_prior = 1 # regularity
@@ -219,7 +219,7 @@ def create_signal_stationary_nonlinearreaction_pytorch():
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     # v0 = 10*torch.ones(G.N, dtype=dtype)
     # v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 10.
+    v0[25] = 0.5
 
     # parameters used in the prior
     nu_prior = 1  # regularity
@@ -279,6 +279,7 @@ def create_signal_stationary_nonlinearreaction_pytorch():
 def create_signal_heat_linearreaction_pytorch():
     #implicit or explicit time discretization of reaction term:
     implicit = True
+    clamp = True # clamp=True activates clampint to [0,1]
     # loading the graph of the US states
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
 
@@ -288,7 +289,8 @@ def create_signal_heat_linearreaction_pytorch():
     # data type used for pytorch
     dtype = torch.float64
     # defining initial nodal values
-    v0 = torch.randn(G.num_nodes, dtype=dtype)
+    #v0 = torch.randn(G.num_nodes, dtype=dtype)
+    v0 = 0.1*torch.rand(G.num_nodes, dtype=dtype)#small infection around draw from uniform dist to ensure in [0,1]
     #v0[25] = 1.
 
     # parameters used in the prior
@@ -308,11 +310,18 @@ def create_signal_heat_linearreaction_pytorch():
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
-    if implicit:
-        y_true = G.sample_heat_with_linearreaction_implicit(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
+    if implicit and clamp==False:
+        y_true = G.sample_heat_with_linearreaction_implicit(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true) # creating a noise free signal
+    elif implicit and clamp:
+        y_true = G.sample_heat_with_linearreaction_implicit(v0, nu=nu_prior, dt=dt_prior, T=T_prior,
+                                                              w_noise=w_noise_true, clamp01=clamp)  # creating a noise free signal
+    elif implicit==False and clamp:
+        y_true = G.sample_heat_with_linearreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior,
+                                                            w_noise=w_noise_true, clamp01=clamp)  # creating a noise free signal
     else:
         y_true = G.sample_heat_with_linearreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior,
-                                                            w_noise=w_noise_true)  # creating a noise free signal
+                                                   w_noise=w_noise_true, clamp01=clamp)  # creating a noise free signal
+
     # creating a normalized noise vector
     noise_vec = torch.randn(y_true.shape)
     noise_vec = noise_vec/torch.linalg.norm(noise_vec) # normalizing accroding to the l2 norm of the noise
@@ -351,6 +360,7 @@ def create_signal_heat_linearreaction_pytorch():
 
 
 def create_signal_heat_nonlinearreaction_pytorch():
+    clamp=True # clamp=True activates clampint to [0,1]
     # loading the graph of the US states
     graph = pickle.load(open('./data/covid_data/g.pkl', "rb"))
 
@@ -360,7 +370,8 @@ def create_signal_heat_nonlinearreaction_pytorch():
     # data type used for pytorch
     dtype = torch.float64
     # defining initial nodal values
-    v0 = torch.randn(G.num_nodes, dtype=dtype)
+    #v0 = torch.randn(G.num_nodes, dtype=dtype)
+    v0 = 0.1 * torch.rand(G.num_nodes, dtype=dtype)  # small infection around draw from uniform dist to ensure in [0,1]
     #v0[25] = 1.
 
     # parameters used in the prior
@@ -380,8 +391,11 @@ def create_signal_heat_nonlinearreaction_pytorch():
     x_true = torch.normal( torch.zeros(G.num_edges ), torch.ones(G.num_edges) ).to(dtype)
     w_noise_true = torch.randn(MAX_ITER_prior, v0.shape[0]).to(dtype)
     G.compute_laplacian_from_tensor_autograd( prior_map(x_true) , normalized=True) # updating the graph weights accroding to the unknown
-    y_true = G.sample_heat_with_nonlinreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
-
+    if clamp==False:
+        y_true = G.sample_heat_with_nonlinreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior, w_noise=w_noise_true ) # creating a noise free signal
+    else:
+        y_true = G.sample_heat_with_nonlinreaction(v0, nu=nu_prior, dt=dt_prior, T=T_prior,
+                                                   w_noise=w_noise_true, clamp01=True)  # creating a noise free signal
     # creating a normalized noise vector
     noise_vec = torch.randn(y_true.shape)
     noise_vec = noise_vec/torch.linalg.norm(noise_vec) # normalizing accroding to the l2 norm of the noise
@@ -420,11 +434,11 @@ def create_signal_heat_nonlinearreaction_pytorch():
 
 if __name__ == '__main__':
     #create_signal_stationary_pytorch()
-    create_signal_stationary_linearreaction_pytorch()
+    #create_signal_stationary_linearreaction_pytorch()
     #create_signal_stationary_nonlinearreaction_pytorch()
     #create_signal_heat_pytorch()
     #create_signal_heat_linearreaction_pytorch()
-    #create_signal_heat_nonlinearreaction_pytorch()
+    create_signal_heat_nonlinearreaction_pytorch()
 
     #test_stationary()
     #test_heat()

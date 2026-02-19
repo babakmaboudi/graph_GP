@@ -20,7 +20,7 @@ class forward_operator_stationary():
     """
 
 
-    def __init__(self, v0, G, nu, prior_map, covid=False):
+    def __init__(self, v0, G, nu, prior_map, clamp=False):
         """
         Parameters:
         -----------
@@ -33,7 +33,7 @@ class forward_operator_stationary():
         self.G = G
         self.prior_map = prior_map
         self.nu = nu
-        self.covid = covid
+        self.clamp = clamp
 
     def forward(self, p):
         """
@@ -53,32 +53,32 @@ class forward_operator_stationary():
         return self.G.sample_stationary(self.v0, nu=self.nu)
 
 class forward_operator_stationary_linearreaction():
-    def __init__(self, v0, G, nu, prior_map, covid=False):
+    def __init__(self, v0, G, nu, prior_map, clamp=False):
         self.v0 = v0
         self.G = G
         self.prior_map = prior_map
         self.nu = nu
-        self.covid = covid
+        self.clamp = clamp
 
     def forward(self, p):
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
-        if self.covid==False:
+        if self.clamp==False:
             return self.G.sample_stationary_with_linearreaction(self.v0, nu=self.nu)
         else:
             return self.G.sample_stationary_with_linearreaction(self.v0, nu=self.nu, clamp01=True)
 
 
 class forward_operator_stationary_nonlinearreaction():
-    def __init__(self, v0, G, nu, prior_map, covid=False):
+    def __init__(self, v0, G, nu, prior_map, clamp=False):
         self.v0 = v0
         self.G = G
         self.prior_map = prior_map
         self.nu = nu
-        self.covid = covid
+        self.clamp = clamp
 
     def forward(self, p):
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
-        if self.covid == False:
+        if self.clamp == False:
             return self.G.sample_stationary_with_nonlinearreaction(self.v0, nu=self.nu)
         else:
             return self.G.sample_stationary_with_nonlinearreaction(self.v0, nu=self.nu, clamp01=True)
@@ -149,7 +149,7 @@ class forward_operator_heat_linearreaction():
     """
 
 
-    def __init__(self, v0, G, prior_map, nu, dt, T, covid=False):
+    def __init__(self, v0, G, prior_map, nu, dt, T, clamp=False):
         """
         Parameters:
         -----------
@@ -167,7 +167,7 @@ class forward_operator_heat_linearreaction():
         self.nu = nu
         self.dt = dt
         self.T = T
-        self.covid = covid
+        self.clamp = clamp
 
 
 
@@ -187,12 +187,12 @@ class forward_operator_heat_linearreaction():
         """
 
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
-        if implicit and self.covid==False:
+        if implicit and self.clamp==False:
             return self.G.sample_heat_with_linearreaction_implicit(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise)
-        elif implicit and self.covid:
+        elif implicit and self.clamp:
             return self.G.sample_heat_with_linearreaction_implicit(self.v0, nu=self.nu, dt=self.dt, T=self.T,
                                                                    w_noise=w_noise, clamp01=True)
-        elif implicit==False and self.covid:
+        elif implicit==False and self.clamp:
             return self.G.sample_heat_with_linearreaction(self.v0, nu=self.nu, dt=self.dt, T=self.T,
                                                           w_noise=w_noise, clamp01=True)
         else:
@@ -212,7 +212,7 @@ class forward_operator_heat_nonlinearreaction():
     """
 
 
-    def __init__(self, v0, G, prior_map, nu, dt, T, covid=False):
+    def __init__(self, v0, G, prior_map, nu, dt, T, clamp=False):
         """
         Parameters:
         -----------
@@ -230,7 +230,7 @@ class forward_operator_heat_nonlinearreaction():
         self.nu = nu
         self.dt = dt
         self.T = T
-        self.covid = covid
+        self.clamp = clamp
 
 
 
@@ -250,7 +250,7 @@ class forward_operator_heat_nonlinearreaction():
         """
 
         self.G.compute_laplacian_from_tensor_autograd( self.prior_map(p), normalized=True ) # here we create a (non-linear) log-Gaussian prior
-        if self.covid == False:
+        if self.clamp == False:
             return self.G.sample_heat_with_nonlinreaction(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise )
         else:
             return self.G.sample_heat_with_nonlinreaction(self.v0, nu=self.nu, dt=self.dt, T=self.T, w_noise=w_noise, clamp01=True)
@@ -347,8 +347,8 @@ def MAP_stationary():
     plt.show()
 
 
-def MAP_stationary_linearreaction_real_covid(covid=True):
-    # covid=True activates clampint to [0,1]
+def MAP_stationary_linearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
     with open('data/covid_data/y_cases_normalized.pkl', 'rb') as handle:
         obs_data = pickle.load(handle)
 
@@ -371,22 +371,23 @@ def MAP_stationary_linearreaction_real_covid(covid=True):
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     # v0 = 10*torch.ones(G.N, dtype=dtype)
     # v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 1.
+    v0[25] = 0.5
     #v0 = obs_data['v0']
 
     prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
 
     y_obs = obs_data#['y_obs']
-    y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
+    y_obs = y_obs[:, -1]
+    #y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
     #could take mean of 80 time points as well!
     #y_obs = y_obs.reshape(51, 80).mean(axis=1)  # (51,)
     #y_obs = y_true + sigma*noise_vec
 
 
     # creating a forward operator
-    #graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    #graph = pickle.load(open('./data/clamp_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
     #G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
-    problem = forward_operator_stationary_linearreaction(v0, G, nu_prior, prior_map,covid=covid) # creating a forward operator
+    problem = forward_operator_stationary_linearreaction(v0, G, nu_prior, prior_map,clamp=clamp) # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
     negative_log_posterior = lambda x: torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + torch.sum( x**2 )
@@ -553,8 +554,8 @@ def MAP_stationary_linearreaction():
     plt.show()
 
 
-def MAP_stationary_nonlinearreaction_real_covid(covid=True):
-    # covid=True activates clampint to [0,1]
+def MAP_stationary_nonlinearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
     with open('data/covid_data/y_cases_normalized.pkl', 'rb') as handle:
         obs_data = pickle.load(handle)
 
@@ -577,13 +578,14 @@ def MAP_stationary_nonlinearreaction_real_covid(covid=True):
     v0 = torch.zeros(G.num_nodes, dtype=dtype)
     # v0 = 10*torch.ones(G.N, dtype=dtype)
     # v0 = 1+torch.rand(G.N, dtype=dtype)
-    v0[25] = 1.
+    v0[25] = 0.5
     #v0 = obs_data['v0']
 
     prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
 
     y_obs = obs_data#['y_obs']
-    y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
+    y_obs = y_obs[:, -1]
+    #old: y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
     #could take mean of 80 time points as well!
     #y_obs = y_obs.reshape(51, 80).mean(axis=1)  # (51,)
     #y_obs = y_true + sigma*noise_vec
@@ -592,7 +594,7 @@ def MAP_stationary_nonlinearreaction_real_covid(covid=True):
     # creating a forward operator
     #graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
     #G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
-    problem = forward_operator_stationary_nonlinearreaction(v0, G, nu_prior, prior_map, covid=covid) # creating a forward operator
+    problem = forward_operator_stationary_nonlinearreaction(v0, G, nu_prior, prior_map, clamp=clamp) # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
     negative_log_posterior = lambda x: torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + torch.sum( x**2 )
@@ -862,8 +864,8 @@ def MAP_heat():
     plt.show()
 
 
-def MAP_heat_linearreaction_real_covid(covid=True):
-    # covid=True activates clampint to [0,1]
+def MAP_heat_linearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
     # ---------- helpers ----------
     def as_nodes_time(y, n_nodes=51, n_time=80):
         """
@@ -891,14 +893,14 @@ def MAP_heat_linearreaction_real_covid(covid=True):
         obs_data = pickle.load(handle)
 
     dtype = torch.float64
-    n_nodes, n_time = 51, 80
+    n_nodes, n_time = 51, 166 #80 #before
 
     graph = pickle.load(
         open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
     G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
     x_obs = torch.normal(torch.zeros(G.num_edges), torch.ones(G.num_edges)).to(dtype)
     y_obs = obs_data  # ['y_obs']
-    y_obs = y_obs.reshape(51, 80)  # numpy array, shape (51,)
+    #y_obs = y_obs.reshape(51, 80)  # numpy array, shape (51,)
 
     x = torch.zeros(110, dtype=torch.float64) # initial guess for the sampler
     x.requires_grad_(True)
@@ -914,7 +916,8 @@ def MAP_heat_linearreaction_real_covid(covid=True):
     prior_map_scale = .1  # output variance parameter
     prior_map_mean = .0
 
-    v0 = torch.randn(G.num_nodes, dtype=dtype)
+    #v0 = torch.randn(G.num_nodes, dtype=dtype)
+    v0 = 0.1*torch.rand(G.num_nodes, dtype=dtype)#small infection around draw from uniform dist to ensure in [0,1]
 
     T_prior = 5.
     MAX_ITER_prior = n_time-1 #int(T_prior / dt_prior)  # number of iterations to hit maximum time
@@ -929,7 +932,7 @@ def MAP_heat_linearreaction_real_covid(covid=True):
     graph = pickle.load(
         open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
     G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
-    problem = forward_operator_heat_linearreaction(v0, G, prior_map, nu_prior, dt_prior, T_prior,covid=covid)  # creating a forward operator
+    problem = forward_operator_heat_linearreaction(v0, G, prior_map, nu_prior, dt_prior, T_prior,clamp=clamp)  # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
     negative_log_posterior = lambda x, w: torch.sum((as_nodes_time(problem.forward(x, w), 51,80) - y_obs) ** 2 / sigma2) + torch.sum(
@@ -1103,8 +1106,8 @@ def MAP_heat_linearreaction():
     plt.show()
 
 
-def MAP_heat_nonlinearreaction_real_covid(covid=True):
-    # covid=True activates clampint to [0,1]
+def MAP_heat_nonlinearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
     # ---------- helpers ----------
     def as_nodes_time(y, n_nodes=51, n_time=80):
         """
@@ -1132,7 +1135,7 @@ def MAP_heat_nonlinearreaction_real_covid(covid=True):
         obs_data = pickle.load(handle)
 
     dtype = torch.float64
-    n_nodes, n_time = 51, 80
+    n_nodes, n_time = 51, 166 #80 #before
 
     graph = pickle.load(
         open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
@@ -1140,7 +1143,7 @@ def MAP_heat_nonlinearreaction_real_covid(covid=True):
     G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
     x_obs = torch.normal(torch.zeros(G.num_edges), torch.ones(G.num_edges)).to(dtype)
     y_obs = obs_data
-    y_obs = y_obs.reshape(n_nodes, n_time)  # numpy array, shape (51,)
+    #y_obs = y_obs.reshape(n_nodes, n_time)  # numpy array, shape (51,)
 
     x = torch.zeros(110, dtype=torch.float64)  # initial guess for the sampler
     x.requires_grad_(True)
@@ -1156,7 +1159,8 @@ def MAP_heat_nonlinearreaction_real_covid(covid=True):
     prior_map_scale = .1  # output variance parameter
     prior_map_mean = .0
 
-    v0 = torch.randn(G.num_nodes, dtype=dtype)
+    #v0 = torch.randn(G.num_nodes, dtype=dtype)
+    v0 = 0.1*torch.rand(G.num_nodes, dtype=dtype)#small infection around draw from uniform dist to ensure in [0,1]
 
     T_prior = 5.
     MAX_ITER_prior = n_time - 1  # int(T_prior / dt_prior)  # number of iterations to hit maximum time
@@ -1172,7 +1176,7 @@ def MAP_heat_nonlinearreaction_real_covid(covid=True):
         open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
     G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
     problem = forward_operator_heat_nonlinearreaction(v0, G, prior_map, nu_prior, dt_prior,
-                                                   T_prior,covid=covid)  # creating a forward operator
+                                                   T_prior,clamp=clamp)  # creating a forward operator
 
     # defining the log-posterior with a standard normal Gaussian prior
     negative_log_posterior = lambda x, w: torch.sum(
@@ -1348,7 +1352,7 @@ def MAP_heat_nonlinearreaction():
 
 if __name__ == '__main__':
     #MAP_stationary()
-    MAP_stationary_linearreaction()
+    #MAP_stationary_linearreaction()
     #MAP_stationary_nonlinearreaction()
     #MAP_heat()
     #MAP_heat_linearreaction()
@@ -1357,4 +1361,4 @@ if __name__ == '__main__':
     #MAP_stationary_linearreaction_real_covid()
     #MAP_stationary_nonlinearreaction_real_covid()
     #MAP_heat_linearreaction_real_covid()
-    #MAP_heat_nonlinearreaction_real_covid()
+    MAP_heat_nonlinearreaction_real_covid()
