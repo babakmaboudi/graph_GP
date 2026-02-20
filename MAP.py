@@ -958,13 +958,13 @@ def MAP_heat_linearreaction_real_covid(clamp=False):
     optimizer.step(closure)
 
     # plotting the true parameter
-    f, axes = plt.subplots(1, 2, figsize=[12, 6])
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #f, axes = plt.subplots(1, 2, figsize=[12, 6])
+    #with open('./stat_positions_exact.pickle', 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
     x_MAP = x
     w_noise_MAP = w_noise
-    y_MAP = problem.forward(x_MAP, w_noise_MAP)
+    #y_MAP = problem.forward(x_MAP, w_noise_MAP)
 
     stat_data = {'x_MAP': x_MAP, 'w_noise_MAP': w_noise_MAP}
 
@@ -976,29 +976,29 @@ def MAP_heat_linearreaction_real_covid(clamp=False):
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Ensure y_obs and y_MAP is (time, nodes)
-    y_obs_plot = y_obs.detach().cpu().numpy().T
-    y_MAP = problem.forward(x_MAP, w_noise_MAP)
-    y_MAP_plot = y_MAP.detach().cpu().numpy() #80,51
+    #y_obs_plot = y_obs.detach().cpu().numpy().T
+    #y_MAP = problem.forward(x_MAP, w_noise_MAP)
+    #y_MAP_plot = y_MAP.detach().cpu().numpy() #80,51
 
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #with open('./stat_positions_exact.pickle', 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
     # --- measurements animation ---
-    plotter = Graph_Plotter(graph, y_obs_plot, axes[0],
-                            pos=state_positions)  # initiating the graph plotter
-    plotter.plot_stationary(y_obs_plot[-1])  # plotting the initial condition
-    anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_obs_plot.shape[0], interval=100)
-    axes[0].set_title('measurements')
+        #plotter = Graph_Plotter(graph, y_obs_plot, axes[0],
+    #                        pos=state_positions)  # initiating the graph plotter
+    #plotter.plot_stationary(y_obs_plot[-1])  # plotting the initial condition
+    #anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_obs_plot.shape[0], interval=100)
+    #axes[0].set_title('measurements')
 
-    temp = prior_map(x_obs).detach().numpy()
-    vmin = np.min(temp)
-    vmax = np.max(temp)
+    #temp = prior_map(x_obs).detach().numpy()
+    #vmin = np.min(temp)
+    #vmax = np.max(temp)
 
-    plotter = Graph_Plotter(graph, y_MAP_plot, axes[1], pos=state_positions)
-    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1])  # , vmin=vmin, vmax=vmax)
-    axes[1].set_title('estimated graph weights')
+    #plotter = Graph_Plotter(graph, y_MAP_plot, axes[1], pos=state_positions)
+    #plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1])  # , vmin=vmin, vmax=vmax)
+    #axes[1].set_title('estimated graph weights')
 
-    plt.show()
+    #plt.show()
 
 
 def MAP_heat_linearreaction():
@@ -1203,13 +1203,13 @@ def MAP_heat_nonlinearreaction_real_covid(clamp=False):
     optimizer.step(closure)
 
     # plotting the true parameter
-    f, axes = plt.subplots(1, 2, figsize=[12, 6])
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #f, axes = plt.subplots(1, 2, figsize=[12, 6])
+    #with open('./stat_positions_exact.pickle', 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
     x_MAP = x
     w_noise_MAP = w_noise
-    y_MAP = problem.forward(x_MAP, w_noise_MAP)
+    #y_MAP = problem.forward(x_MAP, w_noise_MAP)
 
     stat_data = {'x_MAP': x_MAP, 'w_noise_MAP': w_noise_MAP}
 
@@ -1221,28 +1221,28 @@ def MAP_heat_nonlinearreaction_real_covid(clamp=False):
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Ensure y_obs and y_MAP is (time, nodes)
-    y_obs_plot = y_obs.detach().cpu().numpy().T
-    y_MAP_plot = y_MAP.detach().cpu().numpy()  # 80,51
+    #y_obs_plot = y_obs.detach().cpu().numpy().T
+    #y_MAP_plot = y_MAP.detach().cpu().numpy()  # 80,51
 
-    with open('./stat_positions_exact.pickle', 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #with open('./stat_positions_exact.pickle', 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
     # --- measurements animation ---
-    plotter = Graph_Plotter(graph, y_obs_plot, axes[0],
-                            pos=state_positions)  # initiating the graph plotter
-    plotter.plot_stationary(y_obs_plot[-1])  # plotting the initial condition
-    anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_obs_plot.shape[0], interval=100)
-    axes[0].set_title('measurements')
+    #plotter = Graph_Plotter(graph, y_obs_plot, axes[0],
+    #                        pos=state_positions)  # initiating the graph plotter
+    #plotter.plot_stationary(y_obs_plot[-1])  # plotting the initial condition
+    #anim1 = animation.FuncAnimation(fig=f, func=plotter.update_frame, frames=y_obs_plot.shape[0], interval=100)
+    #axes[0].set_title('measurements')
 
-    temp = prior_map(x_obs).detach().numpy()
-    vmin = np.min(temp)
-    vmax = np.max(temp)
+    #temp = prior_map(x_obs).detach().numpy()
+    #vmin = np.min(temp)
+    #vmax = np.max(temp)
 
-    plotter = Graph_Plotter(graph, y_MAP_plot, axes[1], pos=state_positions)
-    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1])  # , vmin=vmin, vmax=vmax)
-    axes[1].set_title('estimated graph weights')
+    #plotter = Graph_Plotter(graph, y_MAP_plot, axes[1], pos=state_positions)
+    #plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1])  # , vmin=vmin, vmax=vmax)
+    #axes[1].set_title('estimated graph weights')
 
-    plt.show()
+    #plt.show()
 
 
 def MAP_heat_nonlinearreaction():

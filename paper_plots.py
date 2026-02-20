@@ -807,6 +807,6 @@ if __name__ == "__main__":
     #plot_signal_stationary()
     #plot_signal_heat()
     #plot_MAP_stationary_linearreaction()
-    #plot_MAP_stationary_nonlinearreaction()
+    plot_MAP_stationary_nonlinearreaction()
     #plot_heat_linearreaction()
-    plot_heat_nonlinearreaction()
+    #plot_heat_nonlinearreaction()
