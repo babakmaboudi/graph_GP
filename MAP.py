@@ -434,20 +434,20 @@ def MAP_stationary_linearreaction_real_covid(clamp=False):
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # plotting the true parameter
-    f, axes = plt.subplots(1,2, figsize=[12,12])
-    with open('stat_positions_exact.pickle' , 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #f, axes = plt.subplots(1,2, figsize=[12,12])
+    #with open('stat_positions_exact.pickle' , 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
 
-    plotter = Graph_Plotter(graph, y_obs.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
-    plotter.plot_stationary(y_obs.detach().numpy() ) # plotting the initial condition
-    axes[0].set_title('measurement')
-    axes[0].set_aspect('equal')
+    #plotter = Graph_Plotter(graph, y_obs.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    #plotter.plot_stationary(y_obs.detach().numpy() ) # plotting the initial condition
+    #axes[0].set_title('measurement')
+    #axes[0].set_aspect('equal')
 
 
-    temp = prior_map(x_obs).detach().numpy()
-    vmin = np.min(temp)
-    vmax = np.max(temp)
+    #temp = prior_map(x_obs).detach().numpy()
+    #vmin = np.min(temp)
+    #vmax = np.max(temp)
 
     # plotting the MAP graph weights
     # plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions) # initiating the graph plotter
@@ -455,12 +455,12 @@ def MAP_stationary_linearreaction_real_covid(clamp=False):
     # axes[1,0].set_title('reconstructed measurement')
     # axes[1,0].set_aspect('equal')
 
-    plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
-    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)
-    axes[1].set_title('estimated graph weights')
-    axes[1].set_aspect('equal')
+    #plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
+    #plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)
+    #axes[1].set_title('estimated graph weights')
+    #axes[1].set_aspect('equal')
 
-    plt.show()
+    #plt.show()
 
 
 def MAP_stationary_linearreaction():
@@ -641,20 +641,20 @@ def MAP_stationary_nonlinearreaction_real_covid(clamp=False):
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # plotting the true parameter
-    f, axes = plt.subplots(1,2, figsize=[12,12])
-    with open('stat_positions_exact.pickle' , 'rb') as handle:
-        state_positions = pickle.load(handle)
+    #f, axes = plt.subplots(1,2, figsize=[12,12])
+    #with open('stat_positions_exact.pickle' , 'rb') as handle:
+    #    state_positions = pickle.load(handle)
 
 
-    plotter = Graph_Plotter(graph, y_obs.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
-    plotter.plot_stationary(y_obs.detach().numpy() ) # plotting the initial condition
-    axes[0].set_title('measurement')
-    axes[0].set_aspect('equal')
+    #plotter = Graph_Plotter(graph, y_obs.detach().numpy(), axes[0], pos=state_positions) # initiating the graph plotter
+    #plotter.plot_stationary(y_obs.detach().numpy() ) # plotting the initial condition
+    #axes[0].set_title('measurement')
+    #axes[0].set_aspect('equal')
 
 
-    temp = prior_map(x_obs).detach().numpy()
-    vmin = np.min(temp)
-    vmax = np.max(temp)
+    #temp = prior_map(x_obs).detach().numpy()
+    #vmin = np.min(temp)
+    #vmax = np.max(temp)
 
     # plotting the MAP graph weights
     # plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[1,0], pos=state_positions) # initiating the graph plotter
@@ -662,12 +662,12 @@ def MAP_stationary_nonlinearreaction_real_covid(clamp=False):
     # axes[1,0].set_title('reconstructed measurement')
     # axes[1,0].set_aspect('equal')
 
-    plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
-    plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)
-    axes[1].set_title('estimated graph weights')
-    axes[1].set_aspect('equal')
+    #plotter = Graph_Plotter(graph, y_MAP.detach().numpy(), axes[0], pos=state_positions)
+    #plotter.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), axes[1], vmin=vmin, vmax=vmax)
+    #axes[1].set_title('estimated graph weights')
+    #axes[1].set_aspect('equal')
 
-    plt.show()
+    #plt.show()
 
 
 def MAP_stationary_nonlinearreaction():
@@ -1359,6 +1359,6 @@ if __name__ == '__main__':
     #MAP_heat_nonlinearreaction()
 
     #MAP_stationary_linearreaction_real_covid()
-    #MAP_stationary_nonlinearreaction_real_covid()
+    MAP_stationary_nonlinearreaction_real_covid()
     #MAP_heat_linearreaction_real_covid()
-    MAP_heat_nonlinearreaction_real_covid()
+    #MAP_heat_nonlinearreaction_real_covid()

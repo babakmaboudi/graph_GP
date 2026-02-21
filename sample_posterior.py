@@ -391,6 +391,77 @@ def sample_posterior_stationary_linearreaction():
     with open('./stat/stationary_linearreaction/samples.pickle', 'wb') as handle:
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+def sample_posterior_stationary_linearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
+    with open('data/covid_data/y_cases_normalized.pkl', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+
+    #noise_vec = obs_data['noise_vec']
+    nu_prior = 1  # regularity
+    # The non-linear mapping that makes the prior positive
+    prior_map_scale = .1  # output variance parameter
+    prior_map_mean = .0
+    prior_map_text = 'lambda x:  prior_map_mean + prior_map_scale*prior_map_parameter*torch.exp(x)'  # the copy of the mapping for future reference
+    prior_map = lambda x: prior_map_mean + prior_map_scale * torch.exp(x)  # the actual mapping
+    #nu_prior = obs_data['nu_prior']
+    #prior_map_mean = obs_data['prior_map_mean']
+    #prior_map_scale = obs_data['prior_map_scale']
+
+    dtype = torch.float64
+    graph = pickle.load(
+        open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
+    v0 = torch.zeros(G.num_nodes, dtype=dtype)
+    # v0 = 10*torch.ones(G.N, dtype=dtype)
+    # v0 = 1+torch.rand(G.N, dtype=dtype)
+    v0[25] = 0.5
+    #v0 = obs_data['v0']
+
+    prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    y_obs = obs_data#['y_obs']
+    y_obs = y_obs[:, -1]
+    #y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
+    #could take mean of 80 time points as well!
+    #y_obs = y_obs.reshape(51, 80).mean(axis=1)  # (51,)
+    #y_obs = y_true + sigma*noise_vec
+    sigma = 0.01 * np.linalg.norm(y_obs)
+    sigma2 = sigma**2
+
+
+    # creating a forward operator
+    #graph = pickle.load(open('./data/clamp_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    #G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+    problem = forward_operator_stationary_linearreaction(v0, G, nu_prior, prior_map,clamp=clamp) # creating a forward operator
+
+    # defining the log-posterior with a standard normal Gaussian prior
+    neg_log_posterior = lambda x: torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + torch.sum( x**2 )
+
+    def pyro_NLP(x):
+        return neg_log_posterior(x['x'])
+
+    nuts_kernel = NUTS(potential_fn=pyro_NLP)
+
+    MCMC_params = {
+        'kernel': nuts_kernel,
+        'num_chains': 1,
+        'initial_params': {'x': torch.zeros(110, dtype=torch.float64) },  
+        'num_samples': 2000,
+        'warmup_steps': 1000
+    }
+
+    mcmc = MCMC(**MCMC_params)
+    mcmc.run()
+
+    samples = mcmc.get_samples()
+
+    stat_data = {'samples': samples}
+
+    with open('./stat/stationary_linearreaction_real_covid/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def sample_posterior_stationary_nonlinearreaction():
     with open('obs/stationary_nonlinearreaction/obs.pickle', 'rb') as handle:
         obs_data = pickle.load(handle)
@@ -439,6 +510,77 @@ def sample_posterior_stationary_nonlinearreaction():
 
     with open('./stat/stationary_nonlinearreaction/samples.pickle', 'wb') as handle:
         pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+def sample_posterior_stationary_nonlinearreaction_real_covid(clamp=False):
+    # clamp=True activates clampint to [0,1]
+    with open('data/covid_data/y_cases_normalized.pkl', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+
+    #noise_vec = obs_data['noise_vec']
+    nu_prior = 1  # regularity
+    # The non-linear mapping that makes the prior positive
+    prior_map_scale = .1  # output variance parameter
+    prior_map_mean = .0
+    prior_map_text = 'lambda x:  prior_map_mean + prior_map_scale*prior_map_parameter*torch.exp(x)'  # the copy of the mapping for future reference
+    prior_map = lambda x: prior_map_mean + prior_map_scale * torch.exp(x)  # the actual mapping
+    #nu_prior = obs_data['nu_prior']
+    #prior_map_mean = obs_data['prior_map_mean']
+    #prior_map_scale = obs_data['prior_map_scale']
+
+    dtype = torch.float64
+    graph = pickle.load(
+        open('./data/covid_data/g.pkl', "rb"))  # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph)  # Initiating a graph Gaussian process
+    v0 = torch.zeros(G.num_nodes, dtype=dtype)
+    # v0 = 10*torch.ones(G.N, dtype=dtype)
+    # v0 = 1+torch.rand(G.N, dtype=dtype)
+    v0[25] = 0.5
+    #v0 = obs_data['v0']
+
+    prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    y_obs = obs_data#['y_obs']
+    y_obs = y_obs[:, -1]
+    #y_obs = y_obs.reshape(51, 80)[:, 0]  # numpy array, shape (51,)
+    #could take mean of 80 time points as well!
+    #y_obs = y_obs.reshape(51, 80).mean(axis=1)  # (51,)
+    #y_obs = y_true + sigma*noise_vec
+    sigma = 0.01 * np.linalg.norm(y_obs)
+    sigma2 = sigma**2
+
+
+    # creating a forward operator
+    #graph = pickle.load(open('./data/clamp_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    #G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+    problem = forward_operator_stationary_nonlinearreaction(v0, G, nu_prior, prior_map,clamp=clamp) # creating a forward operator
+
+    # defining the log-posterior with a standard normal Gaussian prior
+    neg_log_posterior = lambda x: torch.sum( (problem.forward(x) - y_obs)**2/sigma2 ) + torch.sum( x**2 )
+
+    def pyro_NLP(x):
+        return neg_log_posterior(x['x'])
+
+    nuts_kernel = NUTS(potential_fn=pyro_NLP)
+
+    MCMC_params = {
+        'kernel': nuts_kernel,
+        'num_chains': 1,
+        'initial_params': {'x': torch.zeros(110, dtype=torch.float64) },  
+        'num_samples': 2000,
+        'warmup_steps': 1000
+    }
+
+    mcmc = MCMC(**MCMC_params)
+    mcmc.run()
+
+    samples = mcmc.get_samples()
+
+    stat_data = {'samples': samples}
+
+    with open('./stat/stationary_nonlinearreaction_real_covid/samples.pickle', 'wb') as handle:
+        pickle.dump(stat_data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 def sample_posterior_heat_linearreaction():
     with open('obs/heat_linearreaction/obs.pickle', 'rb') as handle:
@@ -849,5 +991,7 @@ if __name__ == '__main__':
     #sample_posterior_heat_nonlinearreaction()
     #sample_posterior_heat()
 
+    #sample_posterior_stationary_linearreaction_real_covid()
+    sample_posterior_stationary_nonlinearreaction_real_covid()
     #sample_posterior_heat_linearreaction_real_covid()
-    sample_posterior_heat_nonlinearreaction_real_covid()
+    #sample_posterior_heat_nonlinearreaction_real_covid()

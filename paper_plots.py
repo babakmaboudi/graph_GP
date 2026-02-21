@@ -422,6 +422,132 @@ def plot_MAP_stationary_linearreaction():
 
     plt.show()
 
+def plot_stationary_linearreaction_real_covid():
+    plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman"],
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "font.size": 8,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    })
+    with open('obs/stationary_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+
+    with open('./stat/stationary_linearreaction_real_covid/MAP.pickle', 'rb') as handle:
+        MAP_data = pickle.load(handle)
+
+
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
+        state_positions = pickle.load(handle)
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    x_MAP = MAP_data['x_MAP']
+    with open('./stat/stationary_linearreaction_real_covid/samples.pickle', 'rb') as handle:
+        stat_data = pickle.load(handle)
+    x_samples = stat_data['samples']['x']
+    x_mean = torch.mean(x_samples,dim=0)
+    samples_pushed_forward = torch.zeros_like(x_samples)
+    for i in range(x_samples.shape[0]):
+        samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    std = torch.std(samples_pushed_forward, dim=0)
+
+        # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
+    fig = plt.figure(figsize=(10.5, 3.8))  # a bit taller to fit cbars nicely
+    #gs = gridspec.GridSpec(
+    #    2, 3,
+    #    height_ratios=[1.0, 0.06],   # bottom row thin
+    #    hspace=0.15,                # spacing between map row and cbar row
+    #    wspace=0.06                 # spacing between columns
+    #)
+    gs = gridspec.GridSpec(
+    2, 3,
+    height_ratios=[1.0, 0.06],
+    left=0.01, right=0.99,
+    bottom=0.08, top=0.90,
+    wspace=0.04, hspace=0.12
+    )
+
+    ax_map = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    ax_cbar = [fig.add_subplot(gs[1, i]) for i in range(3)]
+
+    # Make each colorbar axis SHORTER and centered
+    for cax in ax_cbar:
+        pos = cax.get_position()
+        shrink = 0.4  # 65% width
+        new_w = pos.width * shrink
+        new_x = pos.x0 + (pos.width - new_w) / 2
+        cax.set_position([new_x, pos.y0, new_w, pos.height])
+
+    # --- MAP panel
+    plotter0 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[0],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter0.focus_conus(pad=150_000)
+    m0 = plotter0.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), ax=ax_map[0])
+    ax_map[0].set_title("(a) MAP", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[0], m0, ticks=3, fmt="%.1f")
+
+    # --- Mean panel
+    plotter1 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[1],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter1.focus_conus(pad=150_000)
+    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    ax_map[1].set_title("(b) Posterior mean", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
+
+    # --- Std panel
+    plotter2 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[2],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter2.focus_conus(pad=150_000)
+    m2 = plotter2.plot_graph_wieghts(std.detach().numpy(), ax=ax_map[2])
+    ax_map[2].set_title("(c) Posterior std", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[2], m2, ticks=3, fmt="%.1f")
+
+    # Ensure colorbar axes look clean
+    for cax in ax_cbar:
+        cax.yaxis.set_visible(False)
+
+    #fig.subplots_adjust(left=0.02,right=0.98,bottom=0.08,top=0.92,wspace=0.05,hspace=0.12)
+
+    os.makedirs("./plots", exist_ok=True)
+
+    fig.savefig(
+    "./plots/stationary_linearreaction_real_covid.pdf",
+    bbox_inches="tight"
+    )
+
+    plt.show()
+
 def plot_MAP_stationary_nonlinearreaction():
     plt.rcParams.update({
     "text.usetex": True,
@@ -543,6 +669,132 @@ def plot_MAP_stationary_nonlinearreaction():
 
     fig.savefig(
     "./plots/stationary_nonlinearreaction.pdf",
+    bbox_inches="tight"
+    )
+
+    plt.show()
+
+def plot_stationary_nonlinearreaction_real_covid():
+    plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman"],
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "font.size": 8,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    })
+    with open('obs/stationary_nonlinearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+
+    with open('./stat/stationary_nonlinearreaction_real_covid/MAP.pickle', 'rb') as handle:
+        MAP_data = pickle.load(handle)
+
+
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
+        state_positions = pickle.load(handle)
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    x_MAP = MAP_data['x_MAP']
+    with open('./stat/stationary_nonlinearreaction_real_covid/samples.pickle', 'rb') as handle:
+        stat_data = pickle.load(handle)
+    x_samples = stat_data['samples']['x']
+    x_mean = torch.mean(x_samples,dim=0)
+    samples_pushed_forward = torch.zeros_like(x_samples)
+    for i in range(x_samples.shape[0]):
+        samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    std = torch.std(samples_pushed_forward, dim=0)
+
+        # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
+    fig = plt.figure(figsize=(10.5, 3.8))  # a bit taller to fit cbars nicely
+    #gs = gridspec.GridSpec(
+    #    2, 3,
+    #    height_ratios=[1.0, 0.06],   # bottom row thin
+    #    hspace=0.15,                # spacing between map row and cbar row
+    #    wspace=0.06                 # spacing between columns
+    #)
+    gs = gridspec.GridSpec(
+    2, 3,
+    height_ratios=[1.0, 0.06],
+    left=0.01, right=0.99,
+    bottom=0.08, top=0.90,
+    wspace=0.04, hspace=0.12
+    )
+
+    ax_map = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    ax_cbar = [fig.add_subplot(gs[1, i]) for i in range(3)]
+
+    # Make each colorbar axis SHORTER and centered
+    for cax in ax_cbar:
+        pos = cax.get_position()
+        shrink = 0.4  # 65% width
+        new_w = pos.width * shrink
+        new_x = pos.x0 + (pos.width - new_w) / 2
+        cax.set_position([new_x, pos.y0, new_w, pos.height])
+
+    # --- MAP panel
+    plotter0 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[0],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter0.focus_conus(pad=150_000)
+    m0 = plotter0.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), ax=ax_map[0])
+    ax_map[0].set_title("(a) MAP", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[0], m0, ticks=3, fmt="%.1f")
+
+    # --- Mean panel
+    plotter1 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[1],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter1.focus_conus(pad=150_000)
+    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    ax_map[1].set_title("(b) Posterior mean", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
+
+    # --- Std panel
+    plotter2 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[2],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter2.focus_conus(pad=150_000)
+    m2 = plotter2.plot_graph_wieghts(std.detach().numpy(), ax=ax_map[2])
+    ax_map[2].set_title("(c) Posterior std", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[2], m2, ticks=3, fmt="%.1f")
+
+    # Ensure colorbar axes look clean
+    for cax in ax_cbar:
+        cax.yaxis.set_visible(False)
+
+    #fig.subplots_adjust(left=0.02,right=0.98,bottom=0.08,top=0.92,wspace=0.05,hspace=0.12)
+
+    os.makedirs("./plots", exist_ok=True)
+
+    fig.savefig(
+    "./plots/stationary_nonlinearreaction_real_covid.pdf",
     bbox_inches="tight"
     )
 
@@ -801,12 +1053,269 @@ def plot_heat_nonlinearreaction():
 
     plt.show()
 
+def plot_heat_linearreaction_real_covid():
+    plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman"],
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "font.size": 8,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    })
+    with open('obs/heat_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+
+    with open('./stat/heat_linearreaction_real_covid/MAP.pickle', 'rb') as handle:
+        MAP_data = pickle.load(handle)
+
+
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
+        state_positions = pickle.load(handle)
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    x_MAP = MAP_data['x_MAP']
+    with open('./stat/heat_linearreaction_real_covid/samples.pickle', 'rb') as handle:
+        stat_data = pickle.load(handle)
+    x_samples = stat_data['samples']['x']
+    x_mean = torch.mean(x_samples,dim=0)
+    samples_pushed_forward = torch.zeros_like(x_samples)
+    for i in range(x_samples.shape[0]):
+        samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    std = torch.std(samples_pushed_forward, dim=0)
+
+        # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
+    fig = plt.figure(figsize=(10.5, 3.8))  # a bit taller to fit cbars nicely
+    #gs = gridspec.GridSpec(
+    #    2, 3,
+    #    height_ratios=[1.0, 0.06],   # bottom row thin
+    #    hspace=0.15,                # spacing between map row and cbar row
+    #    wspace=0.06                 # spacing between columns
+    #)
+    gs = gridspec.GridSpec(
+    2, 3,
+    height_ratios=[1.0, 0.06],
+    left=0.01, right=0.99,
+    bottom=0.08, top=0.90,
+    wspace=0.04, hspace=0.12
+    )
+
+    ax_map = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    ax_cbar = [fig.add_subplot(gs[1, i]) for i in range(3)]
+
+    # Make each colorbar axis SHORTER and centered
+    for cax in ax_cbar:
+        pos = cax.get_position()
+        shrink = 0.4  # 65% width
+        new_w = pos.width * shrink
+        new_x = pos.x0 + (pos.width - new_w) / 2
+        cax.set_position([new_x, pos.y0, new_w, pos.height])
+
+    # --- MAP panel
+    plotter0 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[0],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter0.focus_conus(pad=150_000)
+    m0 = plotter0.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), ax=ax_map[0])
+    ax_map[0].set_title("(a) MAP", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[0], m0, ticks=3, fmt="%.1f")
+
+    # --- Mean panel
+    plotter1 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[1],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter1.focus_conus(pad=150_000)
+    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    ax_map[1].set_title("(b) Posterior mean", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
+
+    # --- Std panel
+    plotter2 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[2],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter2.focus_conus(pad=150_000)
+    m2 = plotter2.plot_graph_wieghts(std.detach().numpy(), ax=ax_map[2])
+    ax_map[2].set_title("(c) Posterior std", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[2], m2, ticks=3, fmt="%.1f")
+
+    # Ensure colorbar axes look clean
+    for cax in ax_cbar:
+        cax.yaxis.set_visible(False)
+
+    #fig.subplots_adjust(left=0.02,right=0.98,bottom=0.08,top=0.92,wspace=0.05,hspace=0.12)
+
+    os.makedirs("./plots", exist_ok=True)
+
+    fig.savefig(
+    "./plots/heat_linearreaction_real_covid.pdf",
+    bbox_inches="tight"
+    )
+
+    plt.show()
+
+def plot_heat_nonlinearreaction_real_covid():
+    plt.rcParams.update({
+    "text.usetex": True,
+    "font.family": "serif",
+    "font.serif": ["Computer Modern Roman"],
+    "axes.titlesize": 9,
+    "axes.labelsize": 9,
+    "font.size": 8,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    })
+    with open('obs/heat_linearreaction/obs.pickle', 'rb') as handle:
+        obs_data = pickle.load(handle)
+
+    x_true = obs_data['x_true']
+    y_true = obs_data['y_true']
+    noise_vec = obs_data['noise_vec']
+    nu_prior = obs_data['nu_prior']
+    prior_map_mean = obs_data['prior_map_mean']
+    prior_map_scale = obs_data['prior_map_scale']
+    v0 = obs_data['v0']
+
+    prior_map = prior_map = lambda x: prior_map_mean + prior_map_scale*torch.exp(x)
+
+    # creating signal/observation with noise std defined in sigma with 1% noise level
+    sigma = 0.01*torch.linalg.norm(y_true)
+    sigma2 = sigma*sigma
+    y_obs = y_true + sigma*noise_vec
+
+    # creating a forward operator
+    graph = pickle.load(open('./data/covid_data/g.pkl', "rb")) # the graph containing the nodal information and the connections
+    G = Matern_graph_pytorch(graph) # Initiating a graph Gaussian process
+
+    with open('./stat/heat_nonlinearreaction_real_covid/MAP.pickle', 'rb') as handle:
+        MAP_data = pickle.load(handle)
+
+
+    with open('./stat_positions_lon_lat.pickle', 'rb') as handle:
+        state_positions = pickle.load(handle)
+    us_states_path = shpreader.natural_earth(resolution="50m",category="cultural",name="admin_1_states_provinces_lakes")
+
+    x_MAP = MAP_data['x_MAP']
+    with open('./stat/heat_nonlinearreaction_real_covid/samples.pickle', 'rb') as handle:
+        stat_data = pickle.load(handle)
+    x_samples = stat_data['samples']['x']
+    x_mean = torch.mean(x_samples,dim=0)
+    samples_pushed_forward = torch.zeros_like(x_samples)
+    for i in range(x_samples.shape[0]):
+        samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    std = torch.std(samples_pushed_forward, dim=0)
+
+        # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
+    fig = plt.figure(figsize=(10.5, 3.8))  # a bit taller to fit cbars nicely
+    #gs = gridspec.GridSpec(
+    #    2, 3,
+    #    height_ratios=[1.0, 0.06],   # bottom row thin
+    #    hspace=0.15,                # spacing between map row and cbar row
+    #    wspace=0.06                 # spacing between columns
+    #)
+    gs = gridspec.GridSpec(
+    2, 3,
+    height_ratios=[1.0, 0.06],
+    left=0.01, right=0.99,
+    bottom=0.08, top=0.90,
+    wspace=0.04, hspace=0.12
+    )
+
+    ax_map = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    ax_cbar = [fig.add_subplot(gs[1, i]) for i in range(3)]
+
+    # Make each colorbar axis SHORTER and centered
+    for cax in ax_cbar:
+        pos = cax.get_position()
+        shrink = 0.4  # 65% width
+        new_w = pos.width * shrink
+        new_x = pos.x0 + (pos.width - new_w) / 2
+        cax.set_position([new_x, pos.y0, new_w, pos.height])
+
+    # --- MAP panel
+    plotter0 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[0],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter0.focus_conus(pad=150_000)
+    m0 = plotter0.plot_graph_wieghts(prior_map(x_MAP).detach().numpy(), ax=ax_map[0])
+    ax_map[0].set_title("(a) MAP", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[0], m0, ticks=3, fmt="%.1f")
+
+    # --- Mean panel
+    plotter1 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[1],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter1.focus_conus(pad=150_000)
+    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    ax_map[1].set_title("(b) Posterior mean", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
+
+    # --- Std panel
+    plotter2 = Graph_Plotter_With_US_Map(
+        graph=graph, out=y_true.detach().numpy(), ax=ax_map[2],
+        pos=state_positions, us_states_path=us_states_path,
+        pos_is_lonlat=True, plot_crs="EPSG:5070"
+    )
+    plotter2.focus_conus(pad=150_000)
+    m2 = plotter2.plot_graph_wieghts(std.detach().numpy(), ax=ax_map[2])
+    ax_map[2].set_title("(c) Posterior std", fontsize=15)
+    add_short_cbar_below(fig, ax_cbar[2], m2, ticks=3, fmt="%.1f")
+
+    # Ensure colorbar axes look clean
+    for cax in ax_cbar:
+        cax.yaxis.set_visible(False)
+
+    #fig.subplots_adjust(left=0.02,right=0.98,bottom=0.08,top=0.92,wspace=0.05,hspace=0.12)
+
+    os.makedirs("./plots", exist_ok=True)
+
+    fig.savefig(
+    "./plots/heat_nonlinearreaction_real_covid.pdf",
+    bbox_inches="tight"
+    )
+
+    plt.show()
+
 
 
 if __name__ == "__main__":
     #plot_signal_stationary()
     #plot_signal_heat()
     #plot_MAP_stationary_linearreaction()
-    plot_MAP_stationary_nonlinearreaction()
+    #plot_MAP_stationary_nonlinearreaction()
     #plot_heat_linearreaction()
     #plot_heat_nonlinearreaction()
+
+    #plot_stationary_linearreaction_real_covid()
+    plot_stationary_nonlinearreaction_real_covid()
+    #plot_heat_linearreaction_real_covid()
+    #plot_heat_nonlinearreaction_real_covid()
