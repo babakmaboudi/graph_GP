@@ -9,6 +9,9 @@ from prior import Matern_graph_pytorch
 from plot_tools import Graph_Plotter, Graph_Plotter_With_US_Map
 import torch
 import os
+
+# NOTE: Posterior means shown for graph edge weights are computed in physical
+# weight space: mean(prior_map(x_samples)), not prior_map(mean(x_samples)).
 import cartopy.io.shapereader as shpreader
 import torch
 
@@ -345,6 +348,9 @@ def plot_MAP_stationary_linearreaction():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -392,7 +398,7 @@ def plot_MAP_stationary_linearreaction():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -471,6 +477,9 @@ def plot_stationary_linearreaction_real_covid():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -518,7 +527,7 @@ def plot_stationary_linearreaction_real_covid():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -597,6 +606,9 @@ def plot_MAP_stationary_nonlinearreaction():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -644,7 +656,7 @@ def plot_MAP_stationary_nonlinearreaction():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -723,6 +735,9 @@ def plot_stationary_nonlinearreaction_real_covid():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -770,7 +785,7 @@ def plot_stationary_nonlinearreaction_real_covid():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -796,130 +811,6 @@ def plot_stationary_nonlinearreaction_real_covid():
     fig.savefig(
     "./plots/stationary_nonlinearreaction_real_covid.pdf",
     bbox_inches="tight"
-    )
-
-    plt.show()
-
-def plot_signal_stationary_nonlinear_reaction():
-    # LaTeX-style fonts (same as plot_signal_stationary)
-    plt.rcParams.update({
-        "text.usetex": True,
-        "font.family": "serif",
-        "font.serif": ["Computer Modern Roman"],
-        "axes.titlesize": 9,
-        "axes.labelsize": 9,
-        "font.size": 8,
-        "xtick.labelsize": 7,
-        "ytick.labelsize": 7,
-    })
-
-    # --- load nonlinear-reaction stationary data
-    with open('obs/stationary_nonlinearreaction/obs.pickle', 'rb') as handle:
-        obs_data = pickle.load(handle)
-
-    x_true = obs_data["x_true"]
-    y_true = obs_data["y_true"]
-    v0 = obs_data["v0"]
-    prior_map_mean = obs_data["prior_map_mean"]
-    prior_map_scale = obs_data["prior_map_scale"]
-
-    prior_map = lambda x: prior_map_mean + prior_map_scale * torch.exp(x)
-
-    graph = pickle.load(open("./data/covid_data/g.pkl", "rb"))
-
-    with open("./stat_positions_lon_lat.pickle", "rb") as handle:
-        state_positions = pickle.load(handle)
-
-    us_states_path = shpreader.natural_earth(
-        resolution="50m",
-        category="cultural",
-        name="admin_1_states_provinces_lakes"
-    )
-
-    # If y_true is (T, N), pick one snapshot
-    y0 = y_true.detach().numpy() if torch.is_tensor(y_true) else np.asarray(y_true)
-    if y0.ndim == 2:
-        y0 = y0[0]
-
-    # v0 might be torch tensor; make it a numpy vector like y0
-    v0_np = v0.detach().numpy() if torch.is_tensor(v0) else np.asarray(v0)
-    if v0_np.ndim == 2:
-        v0_np = v0_np[0]
-
-    # True edge weights
-    w_true = prior_map(x_true).detach().numpy()
-
-    # --- figure: 3 panels + cbars below
-    fig = plt.figure(figsize=(10.5, 3.8))
-    gs = gridspec.GridSpec(
-        2, 3,
-        height_ratios=[1.0, 0.06],
-        left=0.01, right=0.99,
-        bottom=0.08, top=0.90,
-        wspace=0.04, hspace=0.12
-    )
-
-    ax_map = [fig.add_subplot(gs[0, i]) for i in range(3)]
-    ax_cbar = [fig.add_subplot(gs[1, i]) for i in range(3)]
-
-    # Make each colorbar axis shorter and centered
-    for cax in ax_cbar:
-        pos = cax.get_position()
-        shrink = 0.40
-        new_w = pos.width * shrink
-        new_x = pos.x0 + (pos.width - new_w) / 2
-        cax.set_position([new_x, pos.y0, new_w, pos.height])
-
-    pad = 150_000
-
-    # --- (a) Source term v0 on nodes
-    plotter1 = Graph_Plotter_With_US_Map(
-        graph=graph, out=v0_np, ax=ax_map[0],
-        pos=state_positions, us_states_path=us_states_path,
-        pos_is_lonlat=True, plot_crs="EPSG:5070"
-    )
-    plotter1.focus_conus(pad=pad)
-    plotter1.plot_stationary(v0_np)
-    ax_map[0].set_title(r"(a) Source term", fontsize=15)
-    add_short_cbar_below(
-        fig, ax_cbar[0], plotter1.nc, ticks=3, fmt="%.1f"
-    )
-
-    # --- (b) Noise-free signal on nodes
-    plotter0 = Graph_Plotter_With_US_Map(
-        graph=graph, out=y0, ax=ax_map[1],
-        pos=state_positions, us_states_path=us_states_path,
-        pos_is_lonlat=True, plot_crs="EPSG:5070"
-    )
-    plotter0.focus_conus(pad=pad)
-    plotter0.plot_stationary(y0)
-    ax_map[1].set_title(r"(b) Noise-free signal", fontsize=15)
-    add_short_cbar_below(
-        fig, ax_cbar[1], plotter0.nc, ticks=3, fmt="%.1f"
-    )
-
-    # --- (c) True parameter on edges
-    plotter2 = Graph_Plotter_With_US_Map(
-        graph=graph, out=y0, ax=ax_map[2],
-        pos=state_positions, us_states_path=us_states_path,
-        pos_is_lonlat=True, plot_crs="EPSG:5070"
-    )
-    plotter2.focus_conus(pad=pad)
-    m2 = plotter2.plot_graph_wieghts(w_true, ax=ax_map[2])
-    ax_map[2].set_title(r"(c) True parameter", fontsize=15)
-    add_short_cbar_below(
-        fig, ax_cbar[2], m2, ticks=3, fmt="%.1f"
-    )
-
-    # Clean colorbar axes
-    for cax in ax_cbar:
-        cax.yaxis.set_visible(False)
-
-    # Save
-    os.makedirs("./plots", exist_ok=True)
-    fig.savefig(
-        "./plots/signal_stationary_nonlinearreaction.pdf",
-        bbox_inches="tight"
     )
 
     plt.show()
@@ -973,6 +864,9 @@ def plot_heat_linearreaction():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -1020,7 +914,7 @@ def plot_heat_linearreaction():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -1100,6 +994,9 @@ def plot_heat_nonlinearreaction():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -1147,7 +1044,7 @@ def plot_heat_nonlinearreaction():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -1226,6 +1123,9 @@ def plot_heat_linearreaction_real_covid():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -1273,7 +1173,7 @@ def plot_heat_linearreaction_real_covid():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -1352,6 +1252,9 @@ def plot_heat_nonlinearreaction_real_covid():
     samples_pushed_forward = torch.zeros_like(x_samples)
     for i in range(x_samples.shape[0]):
         samples_pushed_forward[i,:] = prior_map(x_samples[i])
+    # Posterior summaries in physical edge-weight space
+    # E[w | y] must be computed after transforming each posterior sample.
+    w_mean = torch.mean(samples_pushed_forward, dim=0)
     std = torch.std(samples_pushed_forward, dim=0)
 
         # --- Create a 2-row GridSpec: top row maps, bottom row colorbars
@@ -1399,7 +1302,7 @@ def plot_heat_nonlinearreaction_real_covid():
         pos_is_lonlat=True, plot_crs="EPSG:5070"
     )
     plotter1.focus_conus(pad=150_000)
-    m1 = plotter1.plot_graph_wieghts(prior_map(x_mean).detach().numpy(), ax=ax_map[1])
+    m1 = plotter1.plot_graph_wieghts(w_mean.detach().numpy(), ax=ax_map[1])
     ax_map[1].set_title("(b) Posterior mean", fontsize=15)
     add_short_cbar_below(fig, ax_cbar[1], m1, ticks=3, fmt="%.1f")
 
@@ -1432,15 +1335,14 @@ def plot_heat_nonlinearreaction_real_covid():
 
 
 if __name__ == "__main__":
-    #plot_signal_stationary()
-    #plot_signal_heat()
-    #plot_MAP_stationary_linearreaction()
-    #plot_MAP_stationary_nonlinearreaction()
-    #plot_heat_linearreaction()
-    #plot_heat_nonlinearreaction()
+    plot_signal_stationary()
+    plot_signal_heat()
+    plot_MAP_stationary_linearreaction()
+    plot_MAP_stationary_nonlinearreaction()
+    plot_heat_linearreaction()
+    plot_heat_nonlinearreaction()
 
-    plot_signal_stationary_nonlinear_reaction()
-    #plot_stationary_linearreaction_real_covid()
-    #plot_stationary_nonlinearreaction_real_covid()
-    #plot_heat_linearreaction_real_covid()
-    #plot_heat_nonlinearreaction_real_covid()
+    plot_stationary_linearreaction_real_covid()
+    plot_stationary_nonlinearreaction_real_covid()
+    plot_heat_linearreaction_real_covid()
+    plot_heat_nonlinearreaction_real_covid()
